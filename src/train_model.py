@@ -1,0 +1,62 @@
+"""Train points/rebounds/assists models on league-wide historical player logs."""
+from __future__ import annotations
+
+import logging
+import pandas as pd
+
+from src.data.nba_client import get_league_game_log
+from src.data.seasons import completed_seasons
+from src.features.build import build_player_features
+from src.model.train import train
+
+logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+log = logging.getLogger("train_model")
+SEASONS = completed_seasons(count=2)
+
+
+def assemble_training_frame(seasons: list[str] | None = None) -> pd.DataFrame:
+    """Fetch all-player regular-season game logs and stack them safely."""
+    frames: list[pd.DataFrame] = []
+    for season in (seasons or SEASONS):
+        log.info("fetching league-wide player game logs for %s", season)
+        try:
+            df = get_league_game_log(season)
+        except Exception as exc:
+            log.warning("skip season %s: %s", season, exc)
+            continue
+        if df.empty:
+            log.warning("skip season %s: endpoint returned no games", season)
+            continue
+        frames.append(df)
+        log.info("loaded %s player-game rows from %s", len(df), season)
+    if not frames:
+        raise RuntimeError("No NBA game data fetched. Check internet access to stats.nba.com and try again later.")
+    games = pd.concat(frames, ignore_index=True)
+    games["GAME_DATE"] = pd.to_datetime(games["GAME_DATE"], errors="coerce")
+    games["PLAYER_ID"] = pd.to_numeric(games["PLAYER_ID"], errors="coerce")
+    games = games.dropna(subset=["GAME_DATE", "PLAYER_ID"])
+    if "GAME_ID" in games.columns:
+        games = games.drop_duplicates(subset=["PLAYER_ID", "GAME_ID"], keep="last")
+    return games.sort_values(["GAME_DATE", "PLAYER_ID"], kind="stable").reset_index(drop=True)
+
+
+def main() -> None:
+    log.info("training seasons: %s", ", ".join(SEASONS))
+    games = assemble_training_frame()
+    log.info("assembled %s rows across %s distinct players", len(games), games["PLAYER_ID"].nunique())
+    trained_targets = 0
+    for target in ("PTS", "REB", "AST"):
+        feats = build_player_features(games, target=target)
+        if len(feats) < 50:
+            log.warning("not enough training rows for %s (%s); skipping", target, len(feats))
+            continue
+        log.info("training target=%s on %s player-game rows", target, len(feats))
+        train(feats, target=target)
+        trained_targets += 1
+    if trained_targets != 3:
+        raise RuntimeError(f"Only {trained_targets}/3 target models were trained; see warnings above.")
+    log.info("done. artifacts saved to artifacts/")
+
+
+if __name__ == "__main__":
+    main()
