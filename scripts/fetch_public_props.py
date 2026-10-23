@@ -1,0 +1,206 @@
+"""Best-effort, API-key-free importer for a public NBA prop-board webpage.
+
+This is HTML scraping, not an official API. Public source structure, prices,
+coverage, and access are not guaranteed. Always verify line, prices, and
+availability. Integer lines are skipped because this model does not estimate
+push probability.
+"""
+from __future__ import annotations
+
+import argparse
+import logging
+import re
+import unicodedata
+from pathlib import Path
+from typing import Any
+
+import pandas as pd
+import requests
+from bs4 import BeautifulSoup
+
+log = logging.getLogger("fetch_public_props")
+logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+
+PAGES = {
+    "PTS": "https://www.probetrics.com/nba/props/points",
+    "REB": "https://www.probetrics.com/nba/props/rebounds",
+    "AST": "https://www.probetrics.com/nba/props/assists",
+}
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/130 Safari/537.36"
+}
+ODDS_RE = re.compile(r"(?<!\d)([+\-\u2212\u2013]\s*\d{2,4})(?!\d)")
+LINE_RE = re.compile(r"^\s*(\d{1,3}(?:\.\d+)?)\s*$")
+
+
+def normalize_name(value: str) -> str:
+    value = unicodedata.normalize("NFKD", str(value))
+    value = "".join(ch for ch in value if not unicodedata.combining(ch))
+    return "".join(ch.casefold() for ch in value if ch.isalnum())
+
+
+def parse_line(value: str) -> float | None:
+    match = LINE_RE.match(value or "")
+    return float(match.group(1)) if match else None
+
+
+def parse_odds_and_book(value: str) -> tuple[float | None, str]:
+    """Parse cells like 'DK−128 (opens DraftKings in a new tab)'."""
+    raw = " ".join((value or "").replace("\xa0", " ").split())
+    match = ODDS_RE.search(raw)
+    if not match:
+        return None, ""
+    token = match.group(1).replace("−", "-").replace("–", "-").replace(" ", "")
+    try:
+        odds = float(token)
+    except ValueError:
+        return None, ""
+    prefix = raw[:match.start()].strip(" :-|")
+    code_match = re.search(r"\b(DK|FD|MGM|CZR|ESPN|BR|FANATICS|HARD ROCK)\b", prefix, re.I)
+    book = code_match.group(1).upper() if code_match else (prefix[:24] or "book-unspecified")
+    return odds, book
+
+
+def _header_index(headers: list[str], wanted: str) -> int | None:
+    wanted = wanted.casefold()
+    for idx, value in enumerate(headers):
+        if value.strip().casefold() == wanted:
+            return idx
+    for idx, value in enumerate(headers):
+        if wanted in value.strip().casefold():
+            return idx
+    return None
+
+
+def parse_props_html(
+    html: str,
+    target: str,
+    canonical_players: dict[str, tuple[int, str]] | None = None,
+) -> list[dict[str, Any]]:
+    """Extract player, line and both-side prices from a rendered prop table."""
+    soup = BeautifulSoup(html, "html.parser")
+    rows_out: list[dict[str, Any]] = []
+    canonical_players = canonical_players or {}
+    matched_tables = 0
+    for table in soup.find_all("table"):
+        tr_list = table.find_all("tr")
+        header_tr = next((tr for tr in tr_list if tr.find_all("th")), None)
+        if header_tr is None:
+            continue
+        header_cells = header_tr.find_all(["th", "td"], recursive=False)
+        headers = [cell.get_text(" ", strip=True) for cell in header_cells]
+        idx_player = _header_index(headers, "player")
+        idx_line = _header_index(headers, "line")
+        idx_over = _header_index(headers, "over")
+        idx_under = _header_index(headers, "under")
+        if None in (idx_player, idx_line, idx_over, idx_under):
+            continue
+        matched_tables += 1
+        for tr in tr_list:
+            if tr is header_tr:
+                continue
+            cells = tr.find_all(["td", "th"], recursive=False)
+            if not cells or max(idx_player, idx_line, idx_over, idx_under) >= len(cells):
+                continue
+            player_cell = cells[idx_player]
+            player = player_cell.get_text(" ", strip=True)
+            links = [a.get_text(" ", strip=True) for a in player_cell.find_all("a") if a.get_text(" ", strip=True)]
+            if links:
+                player = links[0]
+            line = parse_line(cells[idx_line].get_text(" ", strip=True))
+            over_text = cells[idx_over].get_text(" ", strip=True)
+            under_text = cells[idx_under].get_text(" ", strip=True)
+            odds_over, over_book = parse_odds_and_book(over_text)
+            odds_under, under_book = parse_odds_and_book(under_text)
+            if not player or line is None or odds_over is None or odds_under is None:
+                continue
+            if abs(line - round(line)) < 1e-9:
+                continue
+            player_id = None
+            canonical_name = player
+            found = canonical_players.get(normalize_name(player))
+            if found:
+                player_id, canonical_name = found
+            rows_out.append({
+                "player_id": player_id,
+                "player_name": canonical_name,
+                "target": target,
+                "line": line,
+                "odds_over": odds_over,
+                "odds_under": odds_under,
+                "bookmaker": f"Probetrics public board (over {over_book}; under {under_book})",
+            })
+    if matched_tables == 0:
+        raise ValueError("Could not find a public prop table with Player, Line, Over and Under columns; page markup may have changed.")
+    return rows_out
+
+
+def load_canonical_players() -> dict[str, tuple[int, str]]:
+    """Use this project's public NBA roster helper to match player names to IDs."""
+    try:
+        from src.data.nba_client import get_active_players
+        df = get_active_players()
+        if df is None or df.empty or not {"PLAYER_ID", "PLAYER_NAME"}.issubset(df.columns):
+            return {}
+        result: dict[str, tuple[int, str]] = {}
+        for row in df.itertuples(index=False):
+            try:
+                pid, name = int(getattr(row, "PLAYER_ID")), str(getattr(row, "PLAYER_NAME"))
+            except (TypeError, ValueError):
+                continue
+            result[normalize_name(name)] = (pid, name)
+        log.info("loaded %s canonical player names for matching", len(result))
+        return result
+    except Exception as exc:
+        log.warning("could not load NBA roster for ID matching; using exact names: %s", exc)
+        return {}
+
+
+def fetch_all(output: Path) -> pd.DataFrame:
+    players = load_canonical_players()
+    session = requests.Session()
+    all_rows: list[dict[str, Any]] = []
+    for target, url in PAGES.items():
+        log.info("fetching public %s lines from %s", target, url)
+        try:
+            response = session.get(url, headers=HEADERS, timeout=25)
+            response.raise_for_status()
+        except requests.RequestException as exc:
+            raise RuntimeError(f"Could not download {target} public prop page: {exc}") from exc
+        rows = parse_props_html(response.text, target, players)
+        log.info("parsed %s usable %s rows", len(rows), target)
+        all_rows.extend(rows)
+    if not all_rows:
+        raise RuntimeError("No usable lines parsed. The source layout may have changed or markets may not be posted.")
+    frame = pd.DataFrame(
+        all_rows,
+        columns=["player_id", "player_name", "target", "line", "odds_over", "odds_under", "bookmaker"],
+    )
+    frame = frame.dropna(subset=["line", "odds_over", "odds_under"])
+    frame = frame.drop_duplicates(subset=["player_name", "target", "line"], keep="first")
+    frame = frame.sort_values(["target", "player_name"], kind="stable").reset_index(drop=True)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    frame.to_csv(output, index=False)
+    matched = int(frame["player_id"].notna().sum())
+    log.info("wrote %s player markets to %s (%s matched to NBA player IDs)", len(frame), output, matched)
+    log.warning("Public-board prices may be delayed, US-book-specific, or region-inapplicable. Verify all rows.")
+    return frame
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--output", type=Path, default=Path("data/prop_lines_public.csv"))
+    args = parser.parse_args()
+    try:
+        frame = fetch_all(args.output)
+    except Exception as exc:
+        log.error("public line import failed: %s", exc)
+        return 1
+    print(f"Imported {len(frame)} player markets into {args.output}.")
+    print("Next: .\\.venv\\Scripts\\python.exe -m src.predict_slate --lines data\\prop_lines_public.csv --top 10")
+    print("This reads a public webpage, not an official API. Source markup may change.")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
