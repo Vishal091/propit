@@ -141,3 +141,27 @@ def test_strict_mode_blocks_unverified_status_but_opt_in_only():
     )
     assert strict.iloc[0]["shortlist_status"] == "AVAILABILITY_UNVERIFIED"
     assert strict_shortlist.empty
+
+
+
+def test_archive_preserves_availability_audit_fields():
+    from scripts.archive_predictions import prepare_archive_rows
+
+    predictions = pd.DataFrame([{
+        **_row(),
+        "p_over": 0.7,
+        "availability_status": "AVAILABLE",
+        "availability_gate": "CLEAR",
+        "availability_reason": "Latest matched report status: AVAILABLE.",
+        "availability_source": "Official NBA injury report",
+        "availability_reported_at_utc": "2026-10-25T12:00:00Z",
+        "availability_age_hours": 3.0,
+    }])
+    archived = prepare_archive_rows(
+        predictions, "2026-10-25", "2026-10-25T15:00:00Z"
+    )
+    row = archived.iloc[0]
+    assert row["availability_status"] == "AVAILABLE"
+    assert row["availability_gate"] == "CLEAR"
+    assert row["availability_source"] == "Official NBA injury report"
+    assert row["availability_age_hours"] == pytest.approx(3.0)
