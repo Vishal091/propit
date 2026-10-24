@@ -174,7 +174,7 @@ def _parse_card_layout(
             "line": line,
             "odds_over": odds_over,
             "odds_under": odds_under,
-            "bookmaker": f"Probetrics public board (over {over_book}; under {under_book})",
+            "bookmaker": f"Flash Odds public board (over {over_book}; under {under_book})",
         })
     return rows, saw_market_row
 
@@ -235,7 +235,7 @@ def parse_props_html(
                 "line": line,
                 "odds_over": odds_over,
                 "odds_under": odds_under,
-                "bookmaker": f"Probetrics public board (over {over_book}; under {under_book})",
+                "bookmaker": f"Flash Odds public board (over {over_book}; under {under_book})",
             })
     if matched_tables == 0 or not rows_out:
         # Newer source versions use a grid/card layout rather than a <table>.
