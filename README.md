@@ -71,6 +71,20 @@ The slate shows the status and freshness gate. Fresh `Available`/`Probable` repo
 
 The flag affects shortlist eligibility, not the all-markets audit output. This is an operator-maintained safeguard, **not** an automatic injury feed; confirm status close to tip-off because the official report can update during the day.
 
+## Soccer analytics: top-five European leagues
+
+The Soccer analytics tab supports historical score imports and future fixture forecasts for the English Premier League, Spain's La Liga, Germany's Bundesliga, Italy's Serie A and France's Ligue 1. Use the import controls to load the league and season(s), then generate forecasts for the date window shown in the dashboard.
+
+**Best Picks** ranks one strongest modeled market per fixture across home win, draw, away win, and the configured total-goals over/under line. The default dashboard gate requires at least 8 prior competition matches and a model probability of at least 52%; the ranking score also discounts forecasts supported by thinner history. Only the five named domestic leagues are eligible. The screen uses independent-Poisson probabilities by default; the Dixon-Coles low-score correction is still experimental and its parameter is not fitted.
+
+The calibration panel reads chronological rolling-origin predictions from predictions/soccer/backtest.csv and reports top-outcome reliability buckets plus expected calibration error. It requires at least 30 predictions per model before displaying the sample gate as met. Calibration is descriptive: it does not fit a corrected probability transformation or guarantee future performance.
+
+The current implementation **does not include bookmaker odds, confirmed lineups, injuries or suspension feeds**. As a result, its Best Picks ranking is a model-confidence shortlist—not a market-value assessment. Do not interpret probability as an edge, EV, or profitable recommendation. Populate and validate reliable, time-stamped odds before adding those claims.
+
+To run the chronological backtest, import historical results and use the Soccer tab's **Run backtest** action or:
+
+    .\\.venv\\Scripts\\python.exe -m scripts.backtest_soccer --input data\\soccer\\matches.csv --min-history 30
+
 ## Run the local dashboard
 
 PropIt includes a browser-based local dashboard with tabs for Overview, Today's Slate, History & Results, and Calibration. It uses the project's existing FastAPI/Uvicorn dependencies and keeps data files behind the interface.
