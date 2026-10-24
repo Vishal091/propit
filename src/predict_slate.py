@@ -20,6 +20,7 @@ from src.data.schedule import get_next_game_map
 from src.features.build import build_player_features, build_team_game_metrics, feature_columns
 from src.model.predict import Prediction, predict_one
 from src.model.train import TrainedModel
+from src.market_comparison import compare_market_rows, no_vig_probabilities
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("predict_slate")
@@ -415,17 +416,20 @@ def _prediction_record(
     bookmaker: str = "",
     player_team: dict[str, str] | None = None,
     match_info: dict[str, str] | None = None,
+    market_info: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     player_team = player_team or {}
     match_info = match_info or {}
+    market_info = market_info or {}
     p_over = pred.p_over
     p_under = (1.0 - p_over) if p_over is not None else None
-    over_implied = implied_probability(odds_over)
-    under_implied = implied_probability(odds_under)
-    no_vig_over = no_vig_under = None
-    if over_implied is not None and under_implied is not None and over_implied + under_implied > 0:
-        total_implied = over_implied + under_implied
-        no_vig_over, no_vig_under = over_implied / total_implied, under_implied / total_implied
+    no_vig_over, no_vig_under, no_vig_method = no_vig_probabilities(
+        odds_over,
+        odds_under,
+        bookmaker_over=market_info.get("bookmaker_over"),
+        bookmaker_under=market_info.get("bookmaker_under"),
+        bookmaker=bookmaker,
+    )
     over_ev = expected_profit_per_unit(p_over, odds_over)
     under_ev = expected_profit_per_unit(p_under, odds_under)
     return {
@@ -451,6 +455,19 @@ def _prediction_record(
         "ev_over_per_1_unit": round(over_ev, 4) if over_ev is not None else None,
         "ev_under_per_1_unit": round(under_ev, 4) if under_ev is not None else None,
         "bookmaker": bookmaker,
+        "bookmaker_over": str(market_info.get("bookmaker_over") or "").strip(),
+        "bookmaker_under": str(market_info.get("bookmaker_under") or "").strip(),
+        "market_source": str(market_info.get("market_source") or ("Flash Odds public board" if line_source == "public_web_import" else "")),
+        "market_snapshot_at_utc": market_info.get("market_snapshot_at_utc") or market_info.get("snapshot_at_utc") or "",
+        "market_no_vig_method": no_vig_method,
+        "previous_line": _number_or_none(market_info.get("previous_line")),
+        "previous_odds_over": _number_or_none(market_info.get("previous_odds_over")),
+        "previous_odds_under": _number_or_none(market_info.get("previous_odds_under")),
+        "prior_snapshot_at_utc": market_info.get("prior_snapshot_at_utc") or "",
+        "market_prior_snapshot_count": _number_or_none(market_info.get("market_prior_snapshot_count")),
+        "line_move_from_previous": _number_or_none(market_info.get("line_move_from_previous")),
+        "over_decimal_odds_move": _number_or_none(market_info.get("over_decimal_odds_move")),
+        "under_decimal_odds_move": _number_or_none(market_info.get("under_decimal_odds_move")),
         "line_warning": (
             "No sportsbook line supplied" if pred.line is None else
             "Public web snapshot; verify current line, both prices, and local availability" if line_source == "public_web_import" else
@@ -466,12 +483,14 @@ def _decorate_and_rank_candidates(
     min_ev: float = 0.02,
     min_probability: float = 0.53,
     max_data_age_days: int = 14,
+    max_market_age_hours: float = 12.0,
     today: pd.Timestamp | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Filter market rows and rank the ones that pass configured research screens."""
     result = out.copy()
     today_date = (today if today is not None else pd.Timestamp.now()).date()
     freshness: list[int | None] = []
+    market_freshness: list[float | None] = []
     statuses: list[str] = []
     reasons: list[str] = []
     sides: list[str | None] = []
@@ -484,12 +503,30 @@ def _decorate_and_rank_candidates(
         date_value = pd.to_datetime(row.get("last_game_date"), errors="coerce")
         age = max(0, (today_date - date_value.date()).days) if pd.notna(date_value) else None
         freshness.append(age)
+        market_age = _number_or_none(row.get("market_snapshot_age_hours"))
+        if market_age is None:
+            stamp = pd.to_datetime(row.get("market_snapshot_at_utc"), utc=True, errors="coerce")
+            if pd.notna(stamp):
+                market_age = max(0.0, (pd.Timestamp.now(tz="UTC") - stamp).total_seconds() / 3600.0)
+        market_freshness.append(round(market_age, 2) if market_age is not None else None)
         source_value = row.get("bookmaker")
         source_label = "" if source_value is None or pd.isna(source_value) else str(source_value).strip().casefold()
         placeholder_markers = ("test", "example", "sample", "demo", "not_live", "not live")
         is_placeholder = (not source_label) or any(marker in source_label for marker in placeholder_markers)
+        line_source_value = str(row.get("line_source") or "").strip().casefold()
+        is_public_snapshot = line_source_value == "public_web_import"
+        market_stamp = str(row.get("market_snapshot_at_utc") or "").strip()
+        market_too_old = market_age is not None and market_age > max_market_age_hours
         if row.get("line") is None or pd.isna(row.get("line")):
             status, reason = "NEEDS_LINE", "Supply a current prop line and both over/under prices."
+            side = prob = market_prob = edge = ev = None
+        elif market_too_old or (is_public_snapshot and (market_age is None or not market_stamp)):
+            status = "STALE_MARKET"
+            reason = (
+                f"Market snapshot is {market_age:.1f} hours old; limit is {max_market_age_hours:.1f} hours."
+                if market_age is not None else
+                "Public market row has no capture timestamp; refresh the board before evaluating it."
+            )
             side = prob = market_prob = edge = ev = None
         elif age is None or age > max_data_age_days:
             status, reason = "STALE_DATA", f"Last game data is {age if age is not None else 'unknown'} days old; limit is {max_data_age_days} days."
@@ -511,7 +548,12 @@ def _decorate_and_rank_candidates(
             if under_ev is not None and under_edge is not None and row.get("model_p_under") is not None:
                 candidates.append((under_ev, under_edge, float(row["model_p_under"]), _number_or_none(row.get("market_no_vig_p_under")), "UNDER"))
             if not candidates:
-                status, reason = "NOT_SCORABLE", "Model probability or valid odds are missing."
+                no_vig_method = str(row.get("market_no_vig_method") or "")
+                if no_vig_method == "cross_book_pair_unavailable":
+                    reason_text = "Over/under quotes come from different books; no-vig edge is unavailable until matched same-book prices are provided."
+                else:
+                    reason_text = "Model probability or valid odds are missing."
+                status, reason = "NOT_SCORABLE", reason_text
                 side = prob = market_prob = edge = ev = None
             else:
                 ev, edge, prob, market_prob, side = max(candidates, key=lambda item: item[0])
@@ -530,6 +572,7 @@ def _decorate_and_rank_candidates(
         evs.append(round(ev, 4) if ev is not None else None)
 
     result["data_age_days"] = freshness
+    result["market_age_hours"] = market_freshness
     result["shortlist_status"] = statuses
     result["shortlist_reason"] = reasons
     result["recommended_side"] = sides
@@ -556,13 +599,14 @@ def main() -> None:
     parser.add_argument("--min-ev", type=float, default=0.02)
     parser.add_argument("--min-probability", type=float, default=0.53)
     parser.add_argument("--max-data-age-days", type=int, default=14)
+    parser.add_argument("--max-market-age-hours", type=float, default=12.0, help="reject market quotes captured earlier than this many hours ago")
     args = parser.parse_args()
     if args.top < 1:
         parser.error("--top must be at least 1")
     if not 0 <= args.min_edge <= 1 or not 0 <= args.min_probability <= 1:
         parser.error("--min-edge and --min-probability must be between 0 and 1")
-    if args.min_ev < 0 or args.max_data_age_days < 0:
-        parser.error("--min-ev and --max-data-age-days must be non-negative")
+    if args.min_ev < 0 or args.max_data_age_days < 0 or args.max_market_age_hours < 0:
+        parser.error("--min-ev, --max-data-age-days, and --max-market-age-hours must be non-negative")
 
     bundles: dict[str, TrainedModel] = {}
     for target in TARGETS:
@@ -653,7 +697,7 @@ def main() -> None:
             match_info = _next_match_for_player(player_id, player_teams, next_games, row, team_id_by_abbreviation)
             records.append(_prediction_record(
                 player_id, display_name, target, last_game_date, pred,
-                line_source, odds_over, odds_under, bookmaker, team_meta, match_info,
+                line_source, odds_over, odds_under, bookmaker, team_meta, match_info, row,
             ))
     else:
         for (player_id, target), (feature_row, player_name, last_game_date) in sorted(feature_lookup.items()):
@@ -668,9 +712,26 @@ def main() -> None:
         raise RuntimeError("No predictions produced. Confirm input player IDs/names are present in available history.")
 
     out = pd.DataFrame(records)
+    out = compare_market_rows(out)
+    # Use the median same-book no-vig probability across all rows/books at the
+    # exact player/stat/line. A cross-book over/under pair never counts as no-vig.
+    for side in ("over", "under"):
+        consensus_col = f"market_no_vig_p_{side}_consensus"
+        output_col = f"market_no_vig_p_{side}"
+        if consensus_col in out.columns:
+            consensus_values = pd.to_numeric(out[consensus_col], errors="coerce")
+            current_values = pd.to_numeric(out[output_col], errors="coerce")
+            out[output_col] = consensus_values.where(consensus_values.notna(), current_values)
+    p_over = pd.to_numeric(out.get("model_p_over"), errors="coerce")
+    p_under = pd.to_numeric(out.get("model_p_under"), errors="coerce")
+    market_over = pd.to_numeric(out.get("market_no_vig_p_over"), errors="coerce")
+    market_under = pd.to_numeric(out.get("market_no_vig_p_under"), errors="coerce")
+    out["model_edge_over_vs_market"] = (p_over - market_over).where(market_over.notna(), np.nan)
+    out["model_edge_under_vs_market"] = (p_under - market_under).where(market_under.notna(), np.nan)
     out, shortlist = _decorate_and_rank_candidates(
         out, min_edge=args.min_edge, min_ev=args.min_ev,
         min_probability=args.min_probability, max_data_age_days=args.max_data_age_days,
+        max_market_age_hours=args.max_market_age_hours,
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     out.to_csv(args.output, index=False)
