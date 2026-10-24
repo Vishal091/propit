@@ -101,3 +101,45 @@ def test_historical_opponent_metrics_are_from_prior_games_only():
     ].iloc[0]
     assert game_two["opp_def_rating"] == pytest.approx(team_two_prior["DEF_RATING"])
     assert game_two["opp_pace"] == pytest.approx(team_two_prior["PACE"])
+
+
+
+def test_minutes_role_and_usage_features_use_only_prior_games():
+    games = make_fake_games(n=7)
+    games["MIN"] = [20, 20, 30, 40, 50, 60, 65]
+    games["FGA"] = [5, 6, 7, 8, 9, 10, 20]
+    games["FTA"] = [1, 2, 3, 4, 5, 6, 15]
+    games["TOV"] = [0, 1, 0, 1, 2, 3, 9]
+    games["REB"] = [4, 5, 6, 7, 8, 9, 99]
+    games["AST"] = [2, 3, 4, 5, 6, 7, 99]
+
+    features = build_player_features(games, target="PTS")
+    # On the final row, all new rolling inputs must end at game six, not game seven.
+    row = features.iloc[-1]
+    expected_minutes = sum([20, 30, 40, 50, 60]) / 5
+    expected_fga = sum([6, 7, 8, 9, 10]) / 5
+    expected_fta = sum([2, 3, 4, 5, 6]) / 5
+    expected_tov = sum([1, 0, 1, 2, 3]) / 5
+    expected_usage = sum([6 + 0.44 * 2 + 1, 7 + 0.44 * 3 + 0, 8 + 0.44 * 4 + 1, 9 + 0.44 * 5 + 2, 10 + 0.44 * 6 + 3]) / 5
+
+    assert row["last5_MIN_mean"] == pytest.approx(expected_minutes)
+    assert row["last10_MIN_mean"] == pytest.approx(sum([20, 20, 30, 40, 50, 60]) / 6)
+    assert row["minutes_trend"] == pytest.approx(expected_minutes - sum([20, 20, 30, 40, 50, 60]) / 6)
+    assert row["minutes_role_ratio"] == pytest.approx(expected_minutes / sum([20, 20, 30, 40, 50, 60]) * 6)
+    assert row["last5_FGA_mean"] == pytest.approx(expected_fga)
+    assert row["last5_FTA_mean"] == pytest.approx(expected_fta)
+    assert row["last5_TOV_mean"] == pytest.approx(expected_tov)
+    assert row["last5_usage_proxy_mean"] == pytest.approx(expected_usage)
+    assert row["last5_REB_mean"] == pytest.approx(sum([5, 6, 7, 8, 9]) / 5)
+    assert row["last5_AST_mean"] == pytest.approx(sum([3, 4, 5, 6, 7]) / 5)
+
+
+def test_minutes_parser_accepts_mm_ss_values():
+    games = make_fake_games(n=3)
+    games["MIN"] = ["30:00", "35:30", "40:15"]
+    games["FGA"] = [10, 10, 10]
+    games["FTA"] = [2, 2, 2]
+    games["TOV"] = [1, 1, 1]
+    features = build_player_features(games, target="PTS")
+    row = features.iloc[-1]
+    assert row["last5_MIN_mean"] == pytest.approx((30.0 + 35.5) / 2)
