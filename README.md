@@ -51,6 +51,32 @@ Output files:
 
 If the importer errors or finds zero markets, inspect the logs. Do not interpret missing data as a pick. Prices may be stale, US-market-specific, or unavailable in your region. Check actual player/market IDs, lines and both side prices before using any row.
 
+## Start a persistent pregame history
+
+The current output files are overwritten on each prediction run. To evaluate probabilities later, save a slate to a persistent history file **before tip-off**. This records the exact line, both odds, model probability, player ID, and the game date you specify.
+
+After updating to the latest main branch, run the usual importer and prediction commands:
+
+    .\.venv\Scripts\python.exe -m scripts.fetch_public_props
+    .\.venv\Scripts\python.exe -m src.predict_slate --lines data\prop_lines_public.csv --top 10
+
+Then archive the slate once, before the games start. Replace the date with the actual NBA-local game date shown for that slate; it is not the player's last_game_date and not necessarily the calendar date in your own timezone:
+
+    .\.venv\Scripts\python.exe -m scripts.archive_predictions --game-date YYYY-MM-DD
+
+This appends rows to data/prediction_history.csv. The command refuses a second archive for the same game date by default. Use --append-snapshot only if deliberately preserving another pregame snapshot for that date; duplicate snapshots can overweight repeated markets in a backtest.
+
+After those games finish and the public NBA player-game logs have updated, settle that date's results:
+
+    .\.venv\Scripts\python.exe -m scripts.settle_predictions --game-date YYYY-MM-DD
+
+The settlement script fills actual_stat and actual_over for matching player appearances. Integer-line pushes are marked PUSH and excluded from probability scoring. A player with no matching appearance in the public logs stays pending; check DNPs, postponements, and data delays rather than assuming they lost. Repeat settlement after the public feed updates if needed.
+
+Once there is enough historical data, point calibration at this persistent history file:
+
+    .\.venv\Scripts\python.exe -m scripts.calibrate data\prediction_history.csv
+
+Do **not** backfill prior days using today's predictions or today's prices. The October 23 output files were not archived with a game date and snapshot timestamp, so they should not be treated as a clean historical pregame record. A useful calibration sample needs multiple dates and enough settled props per target.
 ## Backtest settled historical props (new)
 
 A meaningful probability/ROI backtest needs historical predictions made before the game, the exact line available at that time, the odds available at that time, and the settled result. Current prop-board snapshots cannot substitute for archived odds.
@@ -88,7 +114,7 @@ Targets are PTS, REB, or AST. Enter actual lines and American odds from a market
 
     .\.venv\Scripts\python.exe -m pytest -q
 
-The tests cover player-isolated rolling features, odds arithmetic, season selection, parser behavior, and same-date chronological holdout boundaries.
+The tests cover player-isolated rolling features, odds arithmetic, season selection, parser behavior, same-date chronological holdout boundaries, pregame snapshot archival, and outcome settlement.
 
 ## Important limitations
 
