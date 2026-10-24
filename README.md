@@ -185,3 +185,46 @@ The tests cover player-isolated rolling features, minutes/usage feature timing, 
 - Current roster status is not an official injury or game-availability feed.
 - Integer prop lines are skipped by the importer because the current EV model does not account for push probability.
 - No automatic bet placement is implemented.
+
+## Soccer data foundation (new)
+
+Soccer development is isolated in `src/soccer`; the existing NBA pipeline is unchanged. The first
+data adapters use two complementary sources:
+
+- **StatsBomb Open Data** provides a curated selection of historic competition-seasons with match IDs,
+  final scores, events, and shot-level xG. Coverage is selective, not a complete live fixtures or odds
+  service. Attribute StatsBomb and follow its published terms when sharing insights:
+  https://github.com/statsbomb/open-data
+- **OpenFootball** provides public-domain fixture/result text datasets for supported leagues. It does
+  not provide xG or odds in this importer. Kickoff times remain source-local because a timezone is not
+  consistently supplied: PropIt does not guess a UTC kickoff.
+- Football-Data.co.uk was reviewed but not wired to automated ingestion because its published terms
+  restrict free datasets to private individuals and prohibit commercial use and automated scraping/AI
+  training products. Revisit only if the applicable terms or written permissions change.
+
+### Import competitions and matches
+
+Install the existing requirements first, then list the curated StatsBomb competition-season IDs:
+
+    python -m scripts.import_soccer_data --provider statsbomb --list-competitions --search Premier
+
+Import historical Premier League 2015/16 or Bundesliga 2023/24 match data including team shots,
+shots on target, and xG derived from shot events:
+
+    python -m scripts.import_soccer_data --provider statsbomb --competition-id 2 --season-id 27 --include-xg
+    python -m scripts.import_soccer_data --provider statsbomb --competition-id 9 --season-id 281 --include-xg
+
+Import broader fixture/results files from OpenFootball:
+
+    python -m scripts.import_soccer_data --provider openfootball --league england --season 2026-27
+
+For a small test before pulling all event files, add `--limit 3`. Match records merge by provider and
+match ID into `data/soccer/matches.csv`; downloaded HTTP responses are cached under
+`.cache/soccer/`. Rows retain source URL, source update metadata when provided, retrieval time,
+observation time, and cache freshness. Missing/partial xG remains null with an explicit status.
+The importers do not fetch sportsbook odds, place bets, or claim model calibration.
+
+Data source documentation:
+- StatsBomb format and attribution: https://github.com/statsbomb/open-data
+- OpenFootball public-domain data: https://github.com/openfootball/england
+- Phase plan: [docs/SOCCER_ROADMAP.md](docs/SOCCER_ROADMAP.md)
