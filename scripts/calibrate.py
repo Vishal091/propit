@@ -11,6 +11,7 @@ proof of profitability without a meaningful sample size.
 from __future__ import annotations
 
 import argparse
+import json
 import math
 from pathlib import Path
 
@@ -147,16 +148,32 @@ def reliability(frame: pd.DataFrame, probability_col: str, n_bins: int = 10) -> 
     return grouped.drop(columns=["_bin_index"]).reset_index(drop=True)
 
 
-def evaluate_group(frame: pd.DataFrame, label: str) -> dict[str, object]:
+def evaluate_group(
+    frame: pd.DataFrame,
+    label: str,
+    holdout_start: str | None = None,
+) -> dict[str, object]:
     dates = sorted(frame["game_date"].dropna().unique())
     if len(dates) < 5:
         raise ValueError(f"{label}: need at least 5 distinct dates; found {len(dates)}")
-    split_index = max(1, min(int(len(dates) * 0.7), len(dates) - 1))
-    cutoff = dates[split_index]
+    if holdout_start:
+        try:
+            cutoff = pd.Timestamp(holdout_start).normalize()
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"{label}: invalid saved holdout start {holdout_start!r}") from exc
+    else:
+        split_index = max(1, min(int(len(dates) * 0.7), len(dates) - 1))
+        cutoff = pd.Timestamp(dates[split_index]).normalize()
+
     train = frame[frame["game_date"] < cutoff].copy()
     test = frame[frame["game_date"] >= cutoff].copy()
     if len(train) < 30 or len(test) < 20:
-        raise ValueError(f"{label}: need at least 30 calibration rows and 20 later holdout rows; got {len(train)} and {len(test)}")
+        raise ValueError(
+            f"{label}: need at least 30 calibration rows and 20 later holdout rows; "
+            f"got {len(train)} and {len(test)} for cutoff {cutoff.date()}"
+        )
+    if train["actual_over"].nunique() < 2:
+        raise ValueError(f"{label}: calibration rows need both over and under outcomes")
     calibrator = IsotonicRegression(y_min=0.02, y_max=0.98, out_of_bounds="clip")
     calibrator.fit(train["p_over"], train["actual_over"])
     test["calibrated_p_over"] = calibrator.predict(test["p_over"])
@@ -166,41 +183,78 @@ def evaluate_group(frame: pd.DataFrame, label: str) -> dict[str, object]:
         "target": label,
         "train_rows": len(train),
         "holdout_rows": len(test),
-        "holdout_start": pd.Timestamp(cutoff).date().isoformat(),
+        "calibration_train_end": pd.Timestamp(train["game_date"].max()).date().isoformat(),
+        "holdout_start": cutoff.date().isoformat(),
         "raw": raw,
         "calibrated": calibrated,
         "holdout": test,
     }
 
-
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("csv", type=Path, help="CSV of historical predictions joined to settled results")
     parser.add_argument("--output", type=Path, default=Path("predictions/backtest_holdout.csv"))
+    parser.add_argument(
+        "--cutoffs",
+        type=Path,
+        default=Path("data/calibration_cutoffs.json"),
+        help="Persisted per-stat holdout start dates to keep a stable chronological boundary",
+    )
+    parser.add_argument(
+        "--reset-cutoffs",
+        action="store_true",
+        help="Recalculate the holdout boundary from current data (starts a new evaluation baseline)",
+    )
     args = parser.parse_args()
     rows = prepare_rows(args.csv)
     if rows.empty:
         raise SystemExit("No valid settled rows found.")
+
+    cutoffs: dict[str, str] = {}
+    if args.cutoffs.exists() and not args.reset_cutoffs:
+        try:
+            saved = json.loads(args.cutoffs.read_text(encoding="utf-8"))
+            if not isinstance(saved, dict):
+                raise ValueError("cutoff file must contain a JSON object of target-to-date values")
+            cutoffs = {str(key).upper(): str(value)[:10] for key, value in saved.items()}
+        except Exception as exc:
+            raise SystemExit(
+                f"Could not read saved calibration cutoffs {args.cutoffs}: {exc}. "
+                "Inspect the file or rerun with --reset-cutoffs to establish a new baseline."
+            ) from exc
+
     reports = []
     holdouts = []
     for target, group in rows.groupby("target", sort=True):
+        target_key = str(target).upper()
+        saved_cutoff = cutoffs.get(target_key)
         try:
-            report = evaluate_group(group, target)
+            report = evaluate_group(group, target_key, holdout_start=saved_cutoff)
         except ValueError as exc:
             print(f"SKIP {exc}")
             continue
+        if saved_cutoff is None:
+            cutoffs[target_key] = report["holdout_start"]
+            print(f"PINNED {target_key} holdout start at {report['holdout_start']} in {args.cutoffs}")
         holdout = report.pop("holdout")
-        holdout["calibration_train_end"] = report["holdout_start"]
+        holdout["calibration_train_end"] = report["calibration_train_end"]
+        holdout["calibration_holdout_start"] = report["holdout_start"]
         holdout["raw_brier"] = report["raw"]["brier"]
         holdout["calibrated_brier"] = report["calibrated"]["brier"]
         holdouts.append(holdout)
         reports.append(report)
+
     if not reports:
         raise SystemExit("No stat group had enough chronological data for calibration and holdout evaluation.")
+    args.cutoffs.parent.mkdir(parents=True, exist_ok=True)
+    args.cutoffs.write_text(json.dumps(cutoffs, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     args.output.parent.mkdir(parents=True, exist_ok=True)
     pd.concat(holdouts, ignore_index=True).to_csv(args.output, index=False)
     for report in reports:
-        print(f"\nTARGET {report['target']} | holdout from {report['holdout_start']}")
+        print(
+            f"\nTARGET {report['target']} | train through {report['calibration_train_end']} "
+            f"| holdout from {report['holdout_start']}"
+        )
         print(f"calibration rows={report['train_rows']} holdout rows={report['holdout_rows']}")
         for kind in ("raw", "calibrated"):
             metric = report[kind]
@@ -213,6 +267,7 @@ def main() -> None:
                 f"bets={metric['bets']} net={metric['net_units']:+.2f}u ROI={roi_text}"
             )
     print(f"\nHoldout rows with calibrated probabilities: {args.output}")
+    print(f"Persistent per-stat holdout boundaries: {args.cutoffs}")
     print("Brier/log loss evaluate probability quality. ROI includes only positive-EV bets with both prices and snapshot_at_utc; it remains a historical simulation.")
 
 
