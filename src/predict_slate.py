@@ -15,6 +15,7 @@ import pandas as pd
 
 from src.data.nba_client import get_active_players, get_league_game_log
 from src.data.seasons import current_season, recent_seasons
+from src.data.schedule import get_next_game_map
 from src.features.build import build_player_features
 from src.model.predict import Prediction, predict_one
 from src.model.train import TrainedModel
@@ -94,6 +95,86 @@ def _active_player_map(games: pd.DataFrame) -> dict[int, str]:
     }
 
 
+def _team_display(city: Any, name: Any, abbreviation: Any) -> tuple[str, str]:
+    """Return a readable team name and a normalized three-letter code."""
+    city_text = "" if city is None or pd.isna(city) else str(city).strip()
+    name_text = "" if name is None or pd.isna(name) else str(name).strip()
+    abbr_text = "" if abbreviation is None or pd.isna(abbreviation) else str(abbreviation).strip().upper()
+    display = " ".join(part for part in (city_text, name_text) if part)
+    return display or abbr_text, abbr_text
+
+
+def _player_team_metadata(games: pd.DataFrame) -> dict[int, dict[str, str]]:
+    """Use current roster team fields first, then the player's latest logged team."""
+    metadata: dict[int, dict[str, str]] = {}
+    try:
+        active = get_active_players()
+        if not active.empty and {"PLAYER_ID", "PLAYER_NAME"}.issubset(active.columns):
+            for row in active.to_dict(orient="records"):
+                try:
+                    player_id = int(row["PLAYER_ID"])
+                except (TypeError, ValueError):
+                    continue
+                team, abbreviation = _team_display(
+                    row.get("TEAM_CITY"), row.get("TEAM_NAME"), row.get("TEAM_ABBREVIATION")
+                )
+                if team or abbreviation:
+                    metadata[player_id] = {"team": team, "team_abbreviation": abbreviation}
+    except Exception as exc:
+        log.warning("could not load current roster team metadata: %s", exc)
+
+    if "PLAYER_ID" not in games.columns or "GAME_DATE" not in games.columns:
+        return metadata
+    available = [column for column in ("TEAM_CITY", "TEAM_NAME", "TEAM_ABBREVIATION") if column in games.columns]
+    if not available:
+        return metadata
+    for player_id, group in games.groupby("PLAYER_ID", sort=False):
+        try:
+            pid = int(player_id)
+        except (TypeError, ValueError):
+            continue
+        current = metadata.get(pid, {})
+        if current.get("team_abbreviation"):
+            continue
+        latest = group.sort_values("GAME_DATE", kind="stable").iloc[-1]
+        team, abbreviation = _team_display(
+            latest.get("TEAM_CITY"), latest.get("TEAM_NAME"), latest.get("TEAM_ABBREVIATION")
+        )
+        if team or abbreviation:
+            metadata[pid] = {"team": team, "team_abbreviation": abbreviation}
+    return metadata
+
+
+def _next_match_for_player(
+    player_id: int,
+    player_teams: dict[int, dict[str, str]],
+    next_games: dict[str, dict[str, str]],
+    line_row: dict[str, Any] | None = None,
+) -> dict[str, str]:
+    """Join a player's current team to that team's next scheduled NBA game."""
+    line_row = line_row or {}
+    team_meta = player_teams.get(player_id, {})
+    team_abbreviation = team_meta.get("team_abbreviation", "")
+    team_name = team_meta.get("team", "")
+    line_team = line_row.get("team")
+    if line_team is not None and not pd.isna(line_team) and str(line_team).strip():
+        team_name = str(line_team).strip()
+    scheduled = next_games.get(team_abbreviation, {}) if team_abbreviation else {}
+    match_date = str(line_row.get("match_date") or "").strip()
+    opponent = str(line_row.get("opponent_team") or scheduled.get("opponent_team") or "").strip()
+    matchup = str(line_row.get("matchup") or scheduled.get("matchup") or "").strip()
+    if not match_date:
+        match_date = scheduled.get("match_date", "")
+    return {
+        "team": team_name,
+        "team_abbreviation": team_abbreviation,
+        "match_date": match_date,
+        "opponent_team": opponent,
+        "opponent_abbreviation": scheduled.get("opponent_abbreviation", ""),
+        "matchup": matchup,
+    }
+
+
 def _read_line_file(path: Path) -> pd.DataFrame:
     """Read line rows from CSV. Commented-out examples are ignored."""
     try:
@@ -158,7 +239,11 @@ def _prediction_record(
     odds_over: float | None = None,
     odds_under: float | None = None,
     bookmaker: str = "",
+    player_team: dict[str, str] | None = None,
+    match_info: dict[str, str] | None = None,
 ) -> dict[str, Any]:
+    player_team = player_team or {}
+    match_info = match_info or {}
     p_over = pred.p_over
     p_under = (1.0 - p_over) if p_over is not None else None
     over_implied = implied_probability(odds_over)
@@ -170,8 +255,11 @@ def _prediction_record(
     over_ev = expected_profit_per_unit(p_over, odds_over)
     under_ev = expected_profit_per_unit(p_under, odds_under)
     return {
-        "player_id": player_id, "player_name": player_name, "target": target,
-        "line": pred.line, "line_source": line_source, "last_game_date": last_game_date,
+        "player_id": player_id, "player_name": player_name,
+        "team": player_team.get("team", ""), "team_abbreviation": player_team.get("team_abbreviation", ""),
+        "match_date": match_info.get("match_date", ""), "opponent_team": match_info.get("opponent_team", ""),
+        "opponent_abbreviation": match_info.get("opponent_abbreviation", ""), "matchup": match_info.get("matchup", ""),
+        "target": target, "line": pred.line, "line_source": line_source, "last_game_date": last_game_date,
         "model_expected_value": round(pred.expected_value, 3),
         "interval_80_low": round(pred.interval_80[0], 3),
         "interval_80_high": round(pred.interval_80[1], 3),
@@ -307,6 +395,15 @@ def main() -> None:
     feature_lookup = _build_latest_features(games, active_players)
     if not feature_lookup:
         raise RuntimeError("No player features were prepared. Check NBA game-log access and available history.")
+
+    player_teams = _player_team_metadata(games)
+    try:
+        next_games = get_next_game_map()
+        log.info("loaded next scheduled games for %s NBA teams", len(next_games))
+    except Exception as exc:
+        log.warning("could not load upcoming NBA schedule; match dates will be blank: %s", exc)
+        next_games = {}
+
     bundles = {target: TrainedModel.load(f"artifacts/model_{target}.joblib") for target in TARGETS}
     records: list[dict[str, Any]] = []
 
@@ -340,11 +437,21 @@ def main() -> None:
             bookmaker_value = row.get("bookmaker")
             bookmaker = "" if bookmaker_value is None or pd.isna(bookmaker_value) else str(bookmaker_value).strip()
             line_source = "public_web_import" if bookmaker.casefold().startswith(("probetrics public board", "flash odds public board")) else "user_supplied"
-            records.append(_prediction_record(player_id, display_name, target, last_game_date, pred, line_source, odds_over, odds_under, bookmaker))
+            team_meta = player_teams.get(player_id, {})
+            match_info = _next_match_for_player(player_id, player_teams, next_games, row)
+            records.append(_prediction_record(
+                player_id, display_name, target, last_game_date, pred,
+                line_source, odds_over, odds_under, bookmaker, team_meta, match_info,
+            ))
     else:
         for (player_id, target), (feature_row, player_name, last_game_date) in sorted(feature_lookup.items()):
             pred = predict_one(feature_row, line=None, target=target, bundle=bundles[target])
-            records.append(_prediction_record(player_id, player_name, target, last_game_date, pred, "not_supplied"))
+            team_meta = player_teams.get(player_id, {})
+            match_info = _next_match_for_player(player_id, player_teams, next_games)
+            records.append(_prediction_record(
+                player_id, player_name, target, last_game_date, pred,
+                "not_supplied", player_team=team_meta, match_info=match_info,
+            ))
     if not records:
         raise RuntimeError("No predictions produced. Confirm input player IDs/names are present in available history.")
 
@@ -369,7 +476,7 @@ def main() -> None:
         print(out[["player_name", "target", "line", "shortlist_status", "shortlist_reason"]].head(args.top).to_string(index=False))
         print(f"Full details: {args.output}; shortlist: {args.shortlist_output}")
     else:
-        cols = ["rank", "player_name", "target", "line", "recommended_side", "selected_model_probability", "selected_market_no_vig_probability", "selected_model_edge", "selected_ev_per_1_unit", "data_age_days", "bookmaker"]
+        cols = ["rank", "player_name", "team", "match_date", "opponent_team", "target", "line", "recommended_side", "selected_model_probability", "selected_market_no_vig_probability", "selected_model_edge", "selected_ev_per_1_unit", "data_age_days", "bookmaker"]
         print("TOP MODELED CANDIDATES — verify current markets; results are experimental.")
         print(shortlist[cols].head(args.top).to_string(index=False))
         print(f"Qualified shortlist: {args.shortlist_output}; full audit: {args.output}")
