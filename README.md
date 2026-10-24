@@ -62,7 +62,7 @@ Start it from PowerShell:
 
 Then open http://127.0.0.1:8766 in your browser. Keep the PowerShell window open while using the dashboard; press Ctrl+C in that window to stop it. The server binds to 127.0.0.1 and is intended for local use.
 
-Use **Refresh Slate** to import the public prop board and regenerate model predictions. Use **Run Pregame Workflow** to do those steps and archive the slate for the selected NBA-local game date in one action; only run it before tip-off. Use **History & Results** to settle a completed date after the public NBA game logs update, and **Calibration** to run the chronological holdout evaluation when enough settled history exists. The activity log shows command output and errors, so a blocked public endpoint or missing model artifact is visible rather than silently ignored.
+Use **Refresh Slate** to import the public prop board and regenerate model predictions. Use **Run Pregame Workflow** to do those steps and archive one snapshot for the selected snapshot date in one action; only run it before tip-off. PropIt uses the current NBA roster when team metadata is available and the public NBA schedule to attach each player's team, next scheduled match date, and opponent. The public prop page's Match column is generic, so these match details come from the NBA schedule rather than the market page. Use **History & Results** to settle a specific match date after the public NBA game logs update, and **Calibration** to run the chronological holdout evaluation when enough settled history exists. The activity log shows command output and errors, so a blocked public endpoint or missing model artifact is visible rather than silently ignored.
 
 The CSV files remain internal storage for the existing pipeline and audit trail; normal viewing and workflow actions happen in the dashboard. No bets are placed automatically. Verify public lines and prices independently.
 ## Start a persistent pregame history
@@ -74,17 +74,17 @@ After updating to the latest main branch, run the usual importer and prediction 
     .\.venv\Scripts\python.exe -m scripts.fetch_public_props
     .\.venv\Scripts\python.exe -m src.predict_slate --lines data\prop_lines_public.csv --top 10
 
-Then archive the slate once, before the games start. Replace the date with the actual NBA-local game date shown for that slate; it is not the player's last_game_date and not necessarily the calendar date in your own timezone:
+Then archive the slate once, before the games start. The `--game-date` argument is now a **snapshot-date label** used to prevent duplicate snapshots; it is not assigned as the match date for every player when the schedule has a match date:
 
     .\.venv\Scripts\python.exe -m scripts.archive_predictions --game-date YYYY-MM-DD
 
-This appends rows to data/prediction_history.csv. The command refuses a second archive for the same game date by default. Use --append-snapshot only if deliberately preserving another pregame snapshot for that date; duplicate snapshots can overweight repeated markets in a backtest.
+This appends rows to data/prediction_history.csv. Each record stores the snapshot date separately from the player's event date. When schedule mapping succeeds, `game_date` and `match_date` reflect that player's next scheduled game, with team, opponent, and matchup metadata preserved. The command refuses a second archive for the same snapshot date by default. Use --append-snapshot only if deliberately preserving another pregame snapshot for that date; duplicate snapshots can overweight repeated markets in a backtest.
 
-After those games finish and the public NBA player-game logs have updated, settle that date's results:
+After the games for a particular match date finish and the public NBA player-game logs have updated, settle that match date's results:
 
     .\.venv\Scripts\python.exe -m scripts.settle_predictions --game-date YYYY-MM-DD
 
-The settlement script fills actual_stat and actual_over for matching player appearances. Integer-line pushes are marked PUSH and excluded from probability scoring. A player with no matching appearance in the public logs stays pending; check DNPs, postponements, and data delays rather than assuming they lost. Repeat settlement after the public feed updates if needed.
+The settlement script uses each row's `match_date` (falling back to legacy `game_date`) to settle only matching player appearances. Integer-line pushes are marked PUSH and excluded from probability scoring. A player with no matching appearance in the public logs stays pending; check DNPs, postponements, and data delays rather than assuming they lost. Repeat settlement after the public feed updates if needed.
 
 Once there is enough historical data, point calibration at this persistent history file:
 
