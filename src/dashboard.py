@@ -224,6 +224,18 @@ def api_calibration() -> dict[str, Any]:
         raw_metrics = _metrics(valid_group, "p_over")
         cal_metrics = _metrics(valid_group, "calibrated_p_over")
         date_values = pd.to_datetime(valid_group["game_date"], errors="coerce") if "game_date" in valid_group else pd.Series(dtype="datetime64[ns]")
+        saved_holdout_start = None
+        if "calibration_holdout_start" in valid_group:
+            saved_values = valid_group["calibration_holdout_start"].dropna().astype(str).str.strip()
+            saved_values = saved_values[saved_values.ne("")]
+            if not saved_values.empty:
+                saved_holdout_start = saved_values.iloc[0][:10]
+        saved_train_end = None
+        if "calibration_train_end" in valid_group:
+            train_values = valid_group["calibration_train_end"].dropna().astype(str).str.strip()
+            train_values = train_values[train_values.ne("")]
+            if not train_values.empty:
+                saved_train_end = train_values.iloc[0][:10]
         summaries.append({
             "target": str(target),
             "n": int(len(valid_group)),
@@ -241,7 +253,10 @@ def api_calibration() -> dict[str, Any]:
             "eligible_price_rows": int(cal_metrics["priced_rows"]),
             "raw_net_units": round(float(raw_metrics["net_units"]), 3),
             "calibrated_net_units": round(float(cal_metrics["net_units"]), 3),
-            "holdout_start": str(date_values.min().date()) if not date_values.empty and date_values.notna().any() else None,
+            "calibration_train_end": saved_train_end,
+            "holdout_start": saved_holdout_start or (
+                str(date_values.min().date()) if not date_values.empty and date_values.notna().any() else None
+            ),
         })
         for version, probability_col in (("Raw", "p_over"), ("Calibrated", "calibrated_p_over")):
             buckets = reliability(valid_group, probability_col, n_bins=10)
