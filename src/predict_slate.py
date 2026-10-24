@@ -25,6 +25,7 @@ from src.market_comparison import (
     consolidate_same_line_markets,
     no_vig_probabilities,
 )
+from src.availability import attach_availability, DEFAULT_AVAILABILITY_PATH, DEFAULT_MAX_AGE_HOURS
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("predict_slate")
@@ -491,6 +492,7 @@ def _decorate_and_rank_candidates(
     min_probability: float = 0.53,
     max_data_age_days: int = 14,
     max_market_age_hours: float = 12.0,
+    require_verified_availability: bool = False,
     today: pd.Timestamp | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Filter market rows and rank the ones that pass configured research screens."""
@@ -524,7 +526,25 @@ def _decorate_and_rank_candidates(
         is_public_snapshot = line_source_value == "public_web_import"
         market_stamp = str(row.get("market_snapshot_at_utc") or "").strip()
         market_too_old = market_age is not None and market_age > max_market_age_hours
-        if row.get("line") is None or pd.isna(row.get("line")):
+        availability_gate = str(row.get("availability_gate") or "UNVERIFIED").strip().upper()
+        availability_reason = str(row.get("availability_reason") or "").strip()
+        if availability_gate == "BLOCKED":
+            status = "AVAILABILITY_BLOCKED"
+            reason = "Current matched player-status report says unavailable. " + availability_reason
+            side = prob = market_prob = edge = ev = None
+        elif availability_gate == "REVIEW":
+            status = "AVAILABILITY_REVIEW"
+            reason = "Player status is questionable/doubtful; verify near tip-off. " + availability_reason
+            side = prob = market_prob = edge = ev = None
+        elif require_verified_availability and availability_gate == "STALE":
+            status = "AVAILABILITY_STALE"
+            reason = "Verified availability is stale; refresh the report before shortlisting. " + availability_reason
+            side = prob = market_prob = edge = ev = None
+        elif require_verified_availability and availability_gate != "CLEAR":
+            status = "AVAILABILITY_UNVERIFIED"
+            reason = "Strict availability mode requires a fresh Available/Probable report. " + availability_reason
+            side = prob = market_prob = edge = ev = None
+        elif row.get("line") is None or pd.isna(row.get("line")):
             status, reason = "NEEDS_LINE", "Supply a current prop line and both over/under prices."
             side = prob = market_prob = edge = ev = None
         elif market_too_old or (is_public_snapshot and (market_age is None or not market_stamp)):
@@ -567,6 +587,8 @@ def _decorate_and_rank_candidates(
                 if edge >= min_edge and ev >= min_ev and prob >= min_probability:
                     status = "SHORTLIST_CANDIDATE"
                     reason = f"Best modeled side {side}: edge {edge:.1%}, EV {ev:.3f} units per unit staked; verify source and model calibration."
+                    if availability_gate != "CLEAR":
+                        reason += f" Availability is {availability_gate}; manually confirm the official report before relying on this candidate. {availability_reason}"
                 else:
                     status = "BELOW_THRESHOLDS"
                     reason = f"Best modeled side {side} missed filters (edge >= {min_edge:.1%}, EV >= {min_ev:.3f}, probability >= {min_probability:.1%})."
@@ -607,13 +629,16 @@ def main() -> None:
     parser.add_argument("--min-probability", type=float, default=0.53)
     parser.add_argument("--max-data-age-days", type=int, default=14)
     parser.add_argument("--max-market-age-hours", type=float, default=12.0, help="reject market quotes captured earlier than this many hours ago")
+    parser.add_argument("--availability-file", type=Path, default=DEFAULT_AVAILABILITY_PATH, help="CSV of verified player statuses by player ID and scheduled match date")
+    parser.add_argument("--max-availability-age-hours", type=float, default=DEFAULT_MAX_AGE_HOURS, help="treat older player status reports as stale")
+    parser.add_argument("--require-verified-availability", action="store_true", help="only shortlist rows with a fresh Available/Probable status in the availability CSV")
     args = parser.parse_args()
     if args.top < 1:
         parser.error("--top must be at least 1")
     if not 0 <= args.min_edge <= 1 or not 0 <= args.min_probability <= 1:
         parser.error("--min-edge and --min-probability must be between 0 and 1")
-    if args.min_ev < 0 or args.max_data_age_days < 0 or args.max_market_age_hours < 0:
-        parser.error("--min-ev, --max-data-age-days, and --max-market-age-hours must be non-negative")
+    if args.min_ev < 0 or args.max_data_age_days < 0 or args.max_market_age_hours < 0 or args.max_availability_age_hours < 0:
+        parser.error("--min-ev, --max-data-age-days, --max-market-age-hours, and --max-availability-age-hours must be non-negative")
 
     bundles: dict[str, TrainedModel] = {}
     for target in TARGETS:
@@ -738,10 +763,20 @@ def main() -> None:
         expected_profit_per_unit(_number_or_none(prob), _number_or_none(odds))
         for prob, odds in zip(p_under, out["odds_under_american"])
     ]
+    if not args.availability_file.exists():
+        log.warning(
+            "No player-availability snapshot found at %s; rows will be marked UNVERIFIED. "
+            "Use the documented CSV template or --require-verified-availability for strict screening.",
+            args.availability_file,
+        )
+    out = attach_availability(
+        out, args.availability_file, max_age_hours=args.max_availability_age_hours,
+    )
     out, shortlist = _decorate_and_rank_candidates(
         out, min_edge=args.min_edge, min_ev=args.min_ev,
         min_probability=args.min_probability, max_data_age_days=args.max_data_age_days,
         max_market_age_hours=args.max_market_age_hours,
+        require_verified_availability=args.require_verified_availability,
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     out.to_csv(args.output, index=False)
@@ -759,7 +794,7 @@ def main() -> None:
         print(out[["player_name", "target", "line", "shortlist_status", "shortlist_reason"]].head(args.top).to_string(index=False))
         print(f"Full details: {args.output}; shortlist: {args.shortlist_output}")
     else:
-        cols = ["rank", "player_name", "team", "match_date", "opponent_team", "target", "line", "recommended_side", "selected_model_probability", "selected_market_no_vig_probability", "selected_model_edge", "selected_ev_per_1_unit", "data_age_days", "bookmaker"]
+        cols = ["rank", "player_name", "team", "match_date", "opponent_team", "target", "line", "recommended_side", "selected_model_probability", "selected_market_no_vig_probability", "selected_model_edge", "selected_ev_per_1_unit", "availability_status", "availability_gate", "availability_age_hours", "data_age_days", "bookmaker"]
         print("TOP MODELED CANDIDATES — verify current markets; results are experimental.")
         print(shortlist[cols].head(args.top).to_string(index=False))
         print(f"Qualified shortlist: {args.shortlist_output}; full audit: {args.output}")
