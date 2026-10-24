@@ -60,7 +60,7 @@ Start it from PowerShell:
     Set-Location C:\Users\visha\propit
     .\.venv\Scripts\python.exe -m src.dashboard
 
-Then open http://127.0.0.1:8765 in your browser. Keep the PowerShell window open while using the dashboard; press Ctrl+C in that window to stop it. The server binds to 127.0.0.1 and is intended for local use.
+Then open http://127.0.0.1:8766 in your browser. Keep the PowerShell window open while using the dashboard; press Ctrl+C in that window to stop it. The server binds to 127.0.0.1 and is intended for local use.
 
 Use **Refresh Slate** to import the public prop board and regenerate model predictions. Use **Run Pregame Workflow** to do those steps and archive the slate for the selected NBA-local game date in one action; only run it before tip-off. Use **History & Results** to settle a completed date after the public NBA game logs update, and **Calibration** to run the chronological holdout evaluation when enough settled history exists. The activity log shows command output and errors, so a blocked public endpoint or missing model artifact is visible rather than silently ignored.
 
