@@ -719,7 +719,7 @@ input[type=date],input[type=text],input[type=number],select{border:1px solid var
     });
     (report&&Array.isArray(report.seasons)?report.seasons:[]).forEach(function(season){
       (season.metrics||[]).forEach(function(m){
-        segments.push({league:season.competition_id||"Unknown",season:season.season_name||season.season_id||"Unknown",model:m});
+        segments.push({league:season.competition_name||season.competition_id||"Unknown",season:season.season_name||season.season_id||"Unknown",model:m});
       });
     });
     $("soccer-segment-metrics-table").innerHTML=segments.length?segments.map(function(item){
