@@ -86,14 +86,24 @@ the quality of results depends on the league/season coverage imported.
 - Add /api/soccer/picks and /api/soccer/calibration plus tests for league eligibility, ranking, date validation, odds caveats and top-five-only calibration.
 - Keep soccer in separate modules and preserve NBA defaults and workflows.
 
+## Phase 6: time-stamped odds and stronger model baselines (implemented)
+
+- Add a local The Odds API v4 adapter for the five domestic leagues, with live and explicitly requested historical snapshots, quote/update/snapshot timestamps, bookmaker identity, exact market line, decimal prices, overround and same-book de-vigged probabilities.
+- Keep API keys local in `THE_ODDS_API_KEY` (environment or ignored `.env`); never return the secret from the API, write it to CSV, or log request query strings.
+- Add explicit dashboard controls for live imports and paid historical snapshots. The historical action requires a timezone-aware date and an explicit cost acknowledgment. Expected maximum cost is shown before use; empty responses may incur fewer credits. No provider calls happen automatically on dashboard load.
+- Attach odds to Best Picks only for exact team and league key, a complete same-book market, the exact totals line where applicable, fresh quote and snapshot timestamps, and a market observed before kickoff. Display the matched bookmaker, decimal price, no-vig market probability, model-minus-market edge and model EV/unit as experimental diagnostics only. Unmatched/stale/in-play/post-kickoff prices are never guessed or silently substituted.
+- Expand rolling-origin backtests to include a league-average baseline and season-level reports in addition to Poisson and experimental Dixon-Coles. Display per-competition and per-season metrics in the dashboard.
+- Add a market-implied benchmark to historical backtests only when pre-kickoff, timestamped odds from the local snapshot ledger can be matched. Write matched rows to `predictions/soccer/market_comparison.csv`; unmatched games are excluded and current prices are never backfilled into historical dates.
+- Add tests for market completeness, de-vig normalization, exact lines, stale/in-play odds, secret-key sanitization, historical-cost confirmation, market baseline matching, per-season metrics and dashboard controls.
+
 ## Next phase
 
-### Phase 6: better evidence before betting claims
+### Phase 7: improve predictive signal only after evidence
 
-1. Add dependable, licensed, time-stamped market odds and compare model probability with matched bookmaker prices; only then consider no-vig probabilities, edge and expected value.
-2. Improve the model using more seasons and rolling validation by league/season, compared with league-rate and market-implied baselines where licensed odds exist.
-3. Add lineup/injury features only with trustworthy providers, timestamps and historical pre-match snapshots. Avoid leakage from post-kickoff data.
-4. Consider team-strength ratings and fitted Dixon-Coles parameters only after repeatable out-of-sample validation demonstrates improvement.
+1. Import more historical seasons and compare each model and market benchmark on the same match sample where possible. Track sample counts, per-league score drift and calibration over time.
+2. Add team-strength ratings and fit Dixon-Coles parameters only if rolling, season-held-out evaluation repeatedly improves log loss/Brier against the league-average and plain Poisson baselines.
+3. Add lineup/injury/suspension features only after a trusted provider is selected and it offers reliable timestamps plus historical pre-match snapshots for backtesting. Do not use present-day injury reports as historical inputs.
+4. Avoid any claim of profitable picks until time-aligned prices, model probability calibration, transaction/market constraints and a sufficiently large out-of-sample record support it.
 
 ## Safety and interpretation
 
