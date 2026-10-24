@@ -5,7 +5,7 @@ import math
 import pandas as pd
 import pytest
 
-from src.dashboard import _records, _validate_game_date
+from src.dashboard import _date_already_archived, _records, _validate_game_date
 
 
 def test_validate_game_date_accepts_real_iso_date():
@@ -23,3 +23,16 @@ def test_records_converts_pandas_missing_values_to_json_nulls():
     assert records[0]["probability"] == pytest.approx(0.75)
     assert records[1]["probability"] is None
     assert records[0]["count"] == 1
+
+def test_duplicate_snapshot_check_uses_snapshot_date_not_match_date(tmp_path, monkeypatch):
+    history_path = tmp_path / "prediction_history.csv"
+    pd.DataFrame({
+        "snapshot_date": ["2026-10-24", "2026-10-24"],
+        "game_date": ["2026-10-25", "2026-10-26"],
+        "match_date": ["2026-10-25", "2026-10-26"],
+    }).to_csv(history_path, index=False)
+    monkeypatch.setattr("src.dashboard.HISTORY", history_path)
+
+    assert _date_already_archived("2026-10-24") is True
+    assert _date_already_archived("2026-10-25") is False
+
