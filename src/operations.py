@@ -108,14 +108,22 @@ def append_audit_event(event: dict[str, Any], path: Path | None = None) -> None:
 
 
 def _timestamp_age(frame: pd.DataFrame, candidates: tuple[str, ...], now: pd.Timestamp) -> tuple[float | None, int]:
-    column = next((name for name in candidates if name in frame.columns), None)
-    if not column or frame.empty:
+    if frame.empty:
         return None, 0
-    values = pd.to_datetime(frame[column], utc=True, errors="coerce").dropna()
+    values = pd.Series(dtype="datetime64[ns, UTC]")
+    for column in candidates:
+        if column not in frame.columns:
+            continue
+        candidate_values = pd.to_datetime(frame[column], utc=True, errors="coerce").dropna()
+        if not candidate_values.empty:
+            values = candidate_values
+            break
     if values.empty:
         return None, 0
-    age = max(0.0, (now - values.max()).total_seconds() / 3600.0)
-    return age, int(values.notna().sum())
+    age = (now - values.max()).total_seconds() / 3600.0
+    if age < -5 / 60:
+        return age, int(values.notna().sum())
+    return max(0.0, age), int(values.notna().sum())
 
 
 def _holdout_quality(frame: pd.DataFrame | None) -> dict[str, Any]:
@@ -211,6 +219,8 @@ def build_health_report(root: str | Path = DEFAULT_ROOT, now: str | datetime | p
             checks.append(_check("Public market board", "WARN", "Market file is empty.", path=lines_path, age_hours=age, rows=0))
         elif market_age is None:
             checks.append(_check("Public market board", "WARN", "Could not find a valid market capture timestamp; refresh and inspect source data.", path=lines_path, age_hours=lines_age, rows=len(lines)))
+        elif market_age is not None and market_age < -5 / 60:
+            checks.append(_check("Public market board", "WARN", f"Market capture timestamp is {-market_age:.1f} hours in the future; check local clock or source data.", path=lines_path, age_hours=market_age, rows=len(lines)))
         elif market_age > MAX_MARKET_AGE_HOURS:
             checks.append(_check("Public market board", "WARN", f"Latest captured market quote is {market_age:.1f} hours old; limit is {MAX_MARKET_AGE_HOURS:.0f} hours.", path=lines_path, age_hours=market_age, rows=len(lines)))
         else:
@@ -260,12 +270,15 @@ def build_health_report(root: str | Path = DEFAULT_ROOT, now: str | datetime | p
         if "reported_at_utc" in availability.columns:
             stamps = pd.to_datetime(availability["reported_at_utc"], utc=True, errors="coerce").dropna()
             if not stamps.empty:
-                row_age = max(0.0, (current - stamps.max()).total_seconds() / 3600.0)
-                fresh_count = int(((current - stamps).dt.total_seconds() / 3600 <= MAX_AVAILABILITY_AGE_HOURS).sum())
+                row_age = (current - stamps.max()).total_seconds() / 3600.0
+                age_values = (current - stamps).dt.total_seconds() / 3600.0
+                fresh_count = int(((age_values >= -5 / 60) & (age_values <= MAX_AVAILABILITY_AGE_HOURS)).sum())
         if availability.empty:
             checks.append(_check("Player availability", "WARN", "Availability file has headers only; no statuses are verified.", path=availability_path, age_hours=availability_age, rows=0))
         elif row_age is None:
             checks.append(_check("Player availability", "WARN", "No valid reported_at_utc timestamps; statuses are not current.", path=availability_path, age_hours=availability_age, rows=len(availability)))
+        elif row_age < -5 / 60:
+            checks.append(_check("Player availability", "WARN", f"Newest report timestamp is {-row_age:.1f} hours in the future; check the local clock and source record.", path=availability_path, age_hours=row_age, rows=len(availability)))
         elif row_age > MAX_AVAILABILITY_AGE_HOURS:
             checks.append(_check("Player availability", "WARN", f"Newest report is {row_age:.1f} hours old; refresh after checking the official report.", path=availability_path, age_hours=row_age, rows=len(availability)))
         else:
@@ -309,8 +322,11 @@ def build_health_report(root: str | Path = DEFAULT_ROOT, now: str | datetime | p
             recent_events += 1
             if event.get("ok") is False:
                 recent_failures += 1
-    audit_status = "WARN" if recent_failures else "OK"
+    malformed_audit = any(event.get("event_type") in {"audit_parse_error", "audit_read_error"} for event in events)
+    audit_status = "WARN" if recent_failures or malformed_audit or not audit_path.exists() else "OK"
     audit_detail = f"{recent_events} workflow events in the past 24 hours; {recent_failures} failed." if audit_path.exists() else "No workflow audit events yet; events are written after workflow actions."
+    if malformed_audit:
+        audit_detail += " The audit log also has a read/parse issue."
     checks.append(_check("Workflow audit", audit_status, audit_detail, path=audit_path, rows=len(events)))
 
     statuses = [check["status"] for check in checks]
