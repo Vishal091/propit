@@ -20,7 +20,11 @@ from src.data.schedule import get_next_game_map
 from src.features.build import build_player_features, build_team_game_metrics, feature_columns
 from src.model.predict import Prediction, predict_one
 from src.model.train import TrainedModel
-from src.market_comparison import compare_market_rows, no_vig_probabilities
+from src.market_comparison import (
+    compare_market_rows,
+    consolidate_same_line_markets,
+    no_vig_probabilities,
+)
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("predict_slate")
@@ -713,21 +717,24 @@ def main() -> None:
 
     out = pd.DataFrame(records)
     out = compare_market_rows(out)
-    # Use the median same-book no-vig probability across all rows/books at the
-    # exact player/stat/line. A cross-book over/under pair never counts as no-vig.
-    for side in ("over", "under"):
-        consensus_col = f"market_no_vig_p_{side}_consensus"
-        output_col = f"market_no_vig_p_{side}"
-        if consensus_col in out.columns:
-            consensus_values = pd.to_numeric(out[consensus_col], errors="coerce")
-            current_values = pd.to_numeric(out[output_col], errors="coerce")
-            out[output_col] = consensus_values.where(consensus_values.notna(), current_values)
+    # One prediction row per player/stat/line. The price on each side is the
+    # best decimal return observed at that exact line; no-vig consensus uses
+    # only same-book pairs from any available book rows.
+    out = consolidate_same_line_markets(out)
     p_over = pd.to_numeric(out.get("model_p_over"), errors="coerce")
     p_under = pd.to_numeric(out.get("model_p_under"), errors="coerce")
     market_over = pd.to_numeric(out.get("market_no_vig_p_over"), errors="coerce")
     market_under = pd.to_numeric(out.get("market_no_vig_p_under"), errors="coerce")
     out["model_edge_over_vs_market"] = (p_over - market_over).where(market_over.notna(), np.nan)
     out["model_edge_under_vs_market"] = (p_under - market_under).where(market_under.notna(), np.nan)
+    out["ev_over_per_1_unit"] = [
+        expected_profit_per_unit(_number_or_none(prob), _number_or_none(odds))
+        for prob, odds in zip(p_over, out["odds_over_american"])
+    ]
+    out["ev_under_per_1_unit"] = [
+        expected_profit_per_unit(_number_or_none(prob), _number_or_none(odds))
+        for prob, odds in zip(p_under, out["odds_under_american"])
+    ]
     out, shortlist = _decorate_and_rank_candidates(
         out, min_edge=args.min_edge, min_ev=args.min_ev,
         min_probability=args.min_probability, max_data_age_days=args.max_data_age_days,
