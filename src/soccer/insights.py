@@ -6,9 +6,13 @@ an odds-based edge, expected value, or guarantee of profitability.
 """
 from __future__ import annotations
 
+import json
 import math
 import re
+from datetime import datetime, timezone
 from typing import Any, Iterable, Mapping
+
+from src.soccer.odds import TOP_FIVE_SPORTS
 
 TOP_FIVE_LEAGUES = (
     "Premier League",
@@ -152,6 +156,7 @@ def build_best_picks(
             "market_key": market_key,
             "model": "independent_poisson",
             "model_probability": probability,
+            "market_line": _number(_get(row, "total_goals_line", 2.5)) if market_key in {"over", "under"} else None,
             "history_matches": history_n,
             "home_team_home_matches": _integer(_get(row, "home_team_home_matches", 0)),
             "away_team_away_matches": _integer(_get(row, "away_team_away_matches", 0)),
@@ -253,3 +258,188 @@ def build_calibration_report(
         "model_reports": model_reports,
         "warning": "Calibration describes historical out-of-sample predictions only. It does not establish profitability or future accuracy.",
     }
+
+
+
+def _parse_utc(value: Any) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).strip().replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    if parsed.tzinfo is None:
+        return None
+    return parsed.astimezone(timezone.utc)
+
+
+def _team_match_key(value: Any) -> str:
+    """Conservative exact-name normalization; no fuzzy team-name matching."""
+    cleaned = re.sub(r"[^a-z0-9]+", "", str(value or "").casefold())
+    for suffix in ("footballclub", "soccerclub", "fc", "afc"):
+        if cleaned.endswith(suffix) and len(cleaned) > len(suffix) + 3:
+            cleaned = cleaned[:-len(suffix)]
+            break
+    return cleaned
+
+
+def attach_market_odds(
+    picks: Iterable[Mapping[str, Any]],
+    odds_rows: Iterable[Any],
+    *,
+    now_utc: datetime | None = None,
+    max_quote_age_minutes: float = 120.0,
+    max_snapshot_age_minutes: float = 120.0,
+    max_hours_before_kickoff: float = 168.0,
+) -> list[dict[str, Any]]:
+    """Attach only exact-team, same-book, complete and fresh pre-kickoff odds.
+
+    Expected market probability is de-vigged using every outcome in that exact bookmaker
+    market. Expected value per unit is experimental (model_probability * decimal_price - 1);
+    it must not be treated as calibrated or guaranteed.
+    """
+    for value, label in (
+        (max_quote_age_minutes, "max_quote_age_minutes"),
+        (max_snapshot_age_minutes, "max_snapshot_age_minutes"),
+        (max_hours_before_kickoff, "max_hours_before_kickoff"),
+    ):
+        if not math.isfinite(value) or value <= 0:
+            raise ValueError(f"{label} must be finite and positive")
+    now = (now_utc or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    odds = [dict(row) if isinstance(row, Mapping) else vars(row) for row in odds_rows]
+    results: list[dict[str, Any]] = []
+    sport_key_by_league = {name: config[0] for _selector, config in TOP_FIVE_SPORTS.items()
+                           for name in [config[1]]}
+    for raw_pick in picks:
+        pick = dict(raw_pick)
+        pick["market_probability"] = None
+        pick["best_odds_decimal"] = None
+        pick["best_odds_bookmaker"] = None
+        pick["odds_quote_time_utc"] = None
+        pick["odds_snapshot_time_utc"] = None
+        pick["odds_age_minutes"] = None
+        pick["market_edge_probability"] = None
+        pick["expected_value_per_unit"] = None
+        pick["odds_status"] = "NOT IMPORTED" if not odds else "NO EXACT MATCH"
+        pick["odds_available"] = False
+
+        league_key = sport_key_by_league.get(str(pick.get("league") or ""))
+        home_key = _team_match_key(pick.get("home_team"))
+        away_key = _team_match_key(pick.get("away_team"))
+        pick_date = str(pick.get("match_date") or "")[:10]
+        event_rows: list[dict[str, Any]] = []
+        for item in odds:
+            if league_key and str(item.get("sport_key") or "") != league_key:
+                continue
+            if _team_match_key(item.get("home_team")) != home_key or _team_match_key(item.get("away_team")) != away_key:
+                continue
+            event_time = _parse_utc(item.get("event_commence_time_utc"))
+            if event_time is None or event_time <= now:
+                continue
+            try:
+                odds_date = event_time.date()
+                target_date = datetime.strptime(pick_date, "%Y-%m-%d").date()
+            except (TypeError, ValueError):
+                continue
+            if abs((odds_date - target_date).days) > 1:
+                continue
+            event_rows.append(item)
+
+        candidates = []
+        stale_match_seen = False
+        for item in event_rows:
+            market_key = str(item.get("market_key") or "")
+            pick_market_key = str(pick.get("market_key") or "")
+            if pick_market_key in {"home_win", "draw", "away_win"}:
+                if market_key != "h2h":
+                    continue
+                target_key = pick_market_key.replace("_win", "")
+                if target_key == "home":
+                    target_key = "home"
+            elif pick_market_key in {"over", "under"}:
+                if market_key != "totals":
+                    continue
+                item_point = _number(item.get("market_point"))
+                pick_point = _number(pick.get("market_line"))
+                if item_point is None or pick_point is None or not math.isclose(item_point, pick_point, abs_tol=1e-9):
+                    continue
+                target_key = pick_market_key
+            else:
+                continue
+
+            snapshot_time = _parse_utc(item.get("snapshot_at_utc"))
+            quote_time = _parse_utc(item.get("market_last_update_utc"))
+            kickoff = _parse_utc(item.get("event_commence_time_utc"))
+            if snapshot_time is None or quote_time is None or kickoff is None:
+                stale_match_seen = True
+                continue
+            quote_age = (now - quote_time).total_seconds() / 60.0
+            snapshot_age = (now - snapshot_time).total_seconds() / 60.0
+            hours_to_kickoff = (kickoff - now).total_seconds() / 3600.0
+            if (quote_age < 0 or snapshot_age < 0 or hours_to_kickoff <= 0
+                    or hours_to_kickoff > max_hours_before_kickoff
+                    or quote_age > max_quote_age_minutes or snapshot_age > max_snapshot_age_minutes
+                    or quote_time > kickoff or snapshot_time > kickoff):
+                stale_match_seen = True
+                continue
+            try:
+                outcome_rows = json.loads(str(item.get("outcomes_json") or "[]"))
+            except (ValueError, TypeError):
+                stale_match_seen = True
+                continue
+            by_key = {str(outcome.get("key") or ""): outcome for outcome in outcome_rows if isinstance(outcome, Mapping)}
+            expected_keys = {"home", "draw", "away"} if market_key == "h2h" else {"over", "under"}
+            if not expected_keys.issubset(by_key):
+                continue
+            target = by_key.get(target_key)
+            if not target:
+                continue
+            price = _number(target.get("price_decimal"))
+            fair = _number(target.get("no_vig_probability"))
+            model_probability = _number(pick.get("model_probability"))
+            if price is None or price <= 1 or fair is None or model_probability is None:
+                continue
+            candidates.append({
+                "price": price,
+                "fair_probability": fair,
+                "edge": model_probability - fair,
+                "ev": model_probability * price - 1.0,
+                "bookmaker": str(item.get("bookmaker_title") or item.get("bookmaker_key") or "Unknown"),
+                "quote_time": quote_time,
+                "snapshot_time": snapshot_time,
+                "quote_age": quote_age,
+            })
+        if candidates:
+            best = max(candidates, key=lambda candidate: (candidate["ev"], candidate["edge"], candidate["price"]))
+            pick.update({
+                "market_probability": best["fair_probability"],
+                "best_odds_decimal": best["price"],
+                "best_odds_bookmaker": best["bookmaker"],
+                "odds_quote_time_utc": best["quote_time"].isoformat(timespec="seconds").replace("+00:00", "Z"),
+                "odds_snapshot_time_utc": best["snapshot_time"].isoformat(timespec="seconds").replace("+00:00", "Z"),
+                "odds_age_minutes": best["quote_age"],
+                "market_edge_probability": best["edge"],
+                "expected_value_per_unit": best["ev"],
+                "odds_status": "EXPERIMENTAL POSITIVE EV" if best["ev"] > 0 and best["edge"] > 0 else "MATCHED · NO POSITIVE SIGNAL",
+                "odds_available": True,
+            })
+        elif stale_match_seen:
+            pick["odds_status"] = "STALE OR NOT PRE-KICKOFF"
+        elif event_rows:
+            pick["odds_status"] = "NO EXACT MARKET / LINE"
+        results.append(pick)
+
+    # When verified time-aligned quotes exist, surface positive model signals first;
+    # otherwise preserve Phase 5's history-weighted model rank.
+    results.sort(key=lambda pick: (
+        0 if _number(pick.get("expected_value_per_unit")) is not None and _number(pick.get("market_edge_probability")) is not None
+             and _number(pick.get("expected_value_per_unit")) > 0 and _number(pick.get("market_edge_probability")) > 0 else 1,
+        -(_number(pick.get("expected_value_per_unit")) if _number(pick.get("expected_value_per_unit")) is not None else -999.0),
+        -(_number(pick.get("rank_score")) if _number(pick.get("rank_score")) is not None else 0.0),
+        str(pick.get("match_date") or ""),
+        str(pick.get("league") or ""),
+        str(pick.get("home_team") or ""),
+    ))
+    for index, pick in enumerate(results, start=1):
+        pick["rank"] = index
+    return results
