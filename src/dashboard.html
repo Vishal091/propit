@@ -107,7 +107,7 @@ input[type=date],select{border:1px solid var(--line);border-radius:9px;backgroun
       <div class="section-intro"><div><h2>History & results</h2><p>Archived probabilities with player team, scheduled match date and settled stat line.</p></div><div class="toolbar"><select id="history-filter" aria-label="Filter history"><option value="all">All records</option><option value="pending">Pending</option><option value="settled">Settled</option><option value="push">Pushes</option></select><button class="btn btn-sm" data-action="settle">Settle results ↻</button></div></div>
       <div class="panel">
         <div class="panel-head"><div><h2 class="panel-title">Prediction ledger</h2><p class="panel-subtitle" id="history-count">This ledger is maintained by the app; no manual CSV editing is needed.</p></div><span class="status-pill" id="history-badge">NO HISTORY</span></div>
-        <div class="table-wrap"><table><thead><tr><th>Match date</th><th>Player</th><th>Team</th><th>Opponent</th><th>Stat</th><th>Line</th><th>Model P(over)</th><th>Over odds</th><th>Under odds</th><th>Actual</th><th>Outcome</th><th>Status</th></tr></thead><tbody id="history-table"><tr><td colspan="12" class="empty">No history yet.</td></tr></tbody></table></div>
+        <div class="table-wrap"><table><thead><tr><th>Match date</th><th>Player</th><th>Team</th><th>Opponent</th><th>Stat</th><th>Line</th><th>Model P(over)</th><th>Over odds</th><th>Under odds</th><th>Actual</th><th>Outcome</th><th>Availability</th><th>Status</th></tr></thead><tbody id="history-table"><tr><td colspan="13" class="empty">No history yet.</td></tr></tbody></table></div>
       </div>
       <div class="action-box"><h3>Settle a completed game date</h3><p>Select the actual NBA-local match date to settle. Each archived prop is associated with its own scheduled match date; settlement uses the public NBA player-game log.</p><div class="action-row"><label class="field-label">Match date<input type="date" id="settle-date"></label><button class="btn btn-primary" data-action="settle">Settle selected date ↗</button></div></div>
       <p class="footnote">DNPs, postponed games and missing public-feed rows remain pending for manual review. Pushes are identified separately and excluded from over/under scoring.</p>
@@ -381,10 +381,10 @@ input[type=date],select{border:1px solid var(--line);border-radius:9px;backgroun
       $("history-badge").textContent=data.count?Number(data.count).toLocaleString()+" ROWS":"NO HISTORY";
       $("history-badge").className="status-pill "+(data.count?"good":"warn");
       renderHistory(lastHistory);
-    }catch(err){$("history-table").innerHTML=emptyRow(12,"Could not load history",err.message);}
+    }catch(err){$("history-table").innerHTML=emptyRow(13,"Could not load history",err.message);}
   }
   function renderHistory(rows){
-    if(!rows.length){$("history-table").innerHTML=emptyRow(12,"No records in this view","Run the pregame workflow before a game to start the ledger.");return;}
+    if(!rows.length){$("history-table").innerHTML=emptyRow(13,"No records in this view","Run the pregame workflow before a game to start the ledger.");return;}
     $("history-table").innerHTML=rows.map(function(r){
       var actual=r.actual_stat===null||r.actual_stat===undefined||r.actual_stat===""?"—":fixed(r.actual_stat,1);
       var ov=num(r.actual_over);
@@ -392,7 +392,7 @@ input[type=date],select{border:1px solid var(--line);border-radius:9px;backgroun
       var stat=String(r.settlement_status||"PENDING").toUpperCase();
       var cl=stat==="SETTLED"?"good":stat==="PUSH"?"warn":"";
       var matchDate=r.match_date||r.game_date;
-      return '<tr><td class="mono">'+gameDateLabel(matchDate)+'</td><td><span class="player-cell">'+escapeHtml(r.player_name||"—")+'</span><div class="muted-cell" style="font-size:10px;margin-top:3px">ID '+escapeHtml(r.player_id||"—")+'</div></td><td>'+teamCell(r)+'</td><td>'+opponentCell(r)+'</td><td>'+targetPill(r.target)+'</td><td class="mono">'+fixed(r.line,1)+'</td><td class="mono">'+pct(r.p_over)+'</td><td class="mono">'+money(r.odds_over_american)+'</td><td class="mono">'+money(r.odds_under_american)+'</td><td class="mono">'+actual+'</td><td>'+outcome+'</td><td><span class="status-pill '+cl+'">'+escapeHtml(stat)+'</span></td></tr>';
+      return '<tr><td class="mono">'+gameDateLabel(matchDate)+'</td><td><span class="player-cell">'+escapeHtml(r.player_name||"—")+'</span><div class="muted-cell" style="font-size:10px;margin-top:3px">ID '+escapeHtml(r.player_id||"—")+'</div></td><td>'+teamCell(r)+'</td><td>'+opponentCell(r)+'</td><td>'+targetPill(r.target)+'</td><td class="mono">'+fixed(r.line,1)+'</td><td class="mono">'+pct(r.p_over)+'</td><td class="mono">'+money(r.odds_over_american)+'</td><td class="mono">'+money(r.odds_under_american)+'</td><td class="mono">'+actual+'</td><td>'+outcome+'</td><td>'+availabilityCell(r)+'</td><td><span class="status-pill '+cl+'">'+escapeHtml(stat)+'</span></td></tr>';
     }).join("");
   }
   async function loadCalibration(){
