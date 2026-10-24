@@ -1,9 +1,9 @@
-"""Best-effort, API-key-free importer for a public NBA prop-board webpage.
+"""Best-effort, API-key-free importer for the public Flash Odds NBA prop tables.
 
-This is HTML scraping, not an official API. Public source structure, prices,
-coverage, and access are not guaranteed. Always verify line, prices, and
-availability. Integer lines are skipped because this model does not estimate
-push probability.
+The public pages list lines/prices captured from Underdog. This is HTML scraping,
+not an official API or an aggregate across bookmakers. Source structure, prices,
+coverage, and access are not guaranteed. Verify line, prices, and availability.
+Integer lines are skipped because this model does not estimate push probability.
 """
 from __future__ import annotations
 
@@ -23,9 +23,11 @@ log = logging.getLogger("fetch_public_props")
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 
 PAGES = {
-    "PTS": "https://www.probetrics.com/nba/props/points",
-    "REB": "https://www.probetrics.com/nba/props/rebounds",
-    "AST": "https://www.probetrics.com/nba/props/assists",
+    # Flash Odds publishes server-rendered public tables. These lines/prices
+    # are captured from Underdog, not an aggregate across books.
+    "PTS": "https://flashodds.live/nba/props/points",
+    "REB": "https://flashodds.live/nba/props/rebounds",
+    "AST": "https://flashodds.live/nba/props/assists",
 }
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/130 Safari/537.36"
@@ -46,20 +48,28 @@ def parse_line(value: str) -> float | None:
 
 
 def parse_odds_and_book(value: str) -> tuple[float | None, str]:
-    """Parse cells like 'DK−128 (opens DraftKings in a new tab)'."""
+    """Parse labelled odds (e.g. 'DK−128') or bare American odds (e.g. '165')."""
     raw = " ".join((value or "").replace("\xa0", " ").split())
     match = ODDS_RE.search(raw)
-    if not match:
-        return None, ""
-    token = match.group(1).replace("−", "-").replace("–", "-").replace(" ", "")
-    try:
-        odds = float(token)
-    except ValueError:
-        return None, ""
-    prefix = raw[:match.start()].strip(" :-|")
-    code_match = re.search(r"\b(DK|FD|MGM|CZR|ESPN|BR|FANATICS|HARD ROCK)\b", prefix, re.I)
-    book = code_match.group(1).upper() if code_match else (prefix[:24] or "book-unspecified")
-    return odds, book
+    if match:
+        token = match.group(1).replace("−", "-").replace("–", "-").replace(" ", "")
+        try:
+            odds = float(token)
+        except ValueError:
+            return None, ""
+        prefix = raw[:match.start()].strip(" :-|")
+        code_match = re.search(r"\b(DK|FD|MGM|CZR|ESPN|BR|FANATICS|HARD ROCK)\b", prefix, re.I)
+        book = code_match.group(1).upper() if code_match else (prefix[:24] or "Underdog")
+        return odds, book
+
+    # Flash Odds' public HTML renders positive American prices without a plus
+    # sign (e.g. 165 means +165); only accept a cell containing a single price.
+    bare = re.fullmatch(r"\+?\d{3,4}", raw)
+    if bare:
+        odds = float(raw.lstrip("+"))
+        if 100 <= odds <= 10000:
+            return odds, "Underdog"
+    return None, ""
 
 
 def _header_index(headers: list[str], wanted: str) -> int | None:
@@ -418,7 +428,7 @@ def fetch_all(output: Path) -> pd.DataFrame:
     frame.to_csv(output, index=False)
     matched = int(frame["player_id"].notna().sum())
     log.info("wrote %s player markets to %s (%s matched to NBA player IDs)", len(frame), output, matched)
-    log.warning("Public-board prices may be delayed, US-book-specific, or region-inapplicable. Verify all rows.")
+    log.warning("Public-board prices are captured from Underdog and may be delayed or unavailable in your region. Verify all rows.")
     return frame
 
 
