@@ -14,9 +14,15 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import requests
 
+from src.data.seasons import current_season
+
 log = logging.getLogger(__name__)
 
 SCHEDULE_URL = "https://cdn.nba.com/static/json/staticData/scheduleLeagueV2_1.json"
+SCHEDULE_URLS = (
+    SCHEDULE_URL,
+    "https://cdn.nba.com/static/json/staticData/scheduleLeagueV2.json",
+)
 CACHE_PATH = Path(".cache/nba/scheduleLeagueV2_1.json")
 CACHE_TTL_SECONDS = 6 * 60 * 60
 HEADERS = {
@@ -142,6 +148,16 @@ def build_next_game_map(payload: dict[str, Any], as_of: date | None = None) -> d
     return result
 
 
+def _matches_current_season(payload: dict[str, Any]) -> bool:
+    league = payload.get("leagueSchedule", {})
+    season_value = str(league.get("seasonYear") or "").strip()
+    if not season_value:
+        return True
+    actual_start = season_value[:4]
+    expected_start = current_season().split("-", 1)[0]
+    return actual_start == expected_start
+
+
 def _read_cached_schedule() -> dict[str, Any] | None:
     try:
         if CACHE_PATH.exists():
@@ -161,29 +177,45 @@ def get_next_game_map(
 ) -> dict[str, dict[str, str]]:
     """Fetch/cache the NBA CDN schedule and return the next matchup for each team."""
     stale_payload = _read_cached_schedule()
+    if stale_payload is not None and not _matches_current_season(stale_payload):
+        log.info("cached NBA schedule is for a previous season; refreshing it")
+        stale_payload = None
     cache_fresh = (
         not force_refresh
+        and stale_payload is not None
         and CACHE_PATH.exists()
         and (datetime.now().timestamp() - CACHE_PATH.stat().st_mtime) < CACHE_TTL_SECONDS
     )
     payload = stale_payload if cache_fresh else None
+    last_error: Exception | None = None
 
     if payload is None:
-        try:
-            response = requests.get(SCHEDULE_URL, headers=HEADERS, timeout=25)
-            response.raise_for_status()
-            fresh = response.json()
-            if not isinstance(fresh, dict) or not isinstance(fresh.get("leagueSchedule"), dict):
-                raise ValueError("NBA CDN response did not contain leagueSchedule.gameDates")
-            payload = fresh
-            CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
-            temp_path = CACHE_PATH.with_suffix(".tmp")
-            temp_path.write_text(json.dumps(fresh), encoding="utf-8")
-            temp_path.replace(CACHE_PATH)
-        except (requests.RequestException, ValueError, OSError) as exc:
+        for url in SCHEDULE_URLS:
+            try:
+                response = requests.get(url, headers=HEADERS, timeout=25)
+                response.raise_for_status()
+                fresh = response.json()
+                if not isinstance(fresh, dict) or not isinstance(fresh.get("leagueSchedule"), dict):
+                    raise ValueError("NBA CDN response did not contain leagueSchedule.gameDates")
+                if not _matches_current_season(fresh):
+                    raise ValueError(
+                        f"{url} returned schedule season {fresh.get('leagueSchedule', {}).get('seasonYear')!r}, "
+                        f"not current season {current_season()}"
+                    )
+                payload = fresh
+                CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+                temp_path = CACHE_PATH.with_suffix(".tmp")
+                temp_path.write_text(json.dumps(fresh), encoding="utf-8")
+                temp_path.replace(CACHE_PATH)
+                break
+            except (requests.RequestException, ValueError, OSError) as exc:
+                last_error = exc
+                log.warning("could not use NBA schedule endpoint %s: %s", url, exc)
+
+        if payload is None:
             if stale_payload is None:
-                raise RuntimeError(f"Could not retrieve the public NBA schedule: {exc}") from exc
-            log.warning("could not refresh public NBA schedule; using stale cache: %s", exc)
+                raise RuntimeError(f"Could not retrieve the current public NBA schedule: {last_error}")
+            log.warning("could not refresh public NBA schedule; using stale cache: %s", last_error)
             payload = stale_payload
 
     return build_next_game_map(payload, as_of=as_of)
