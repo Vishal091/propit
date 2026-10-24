@@ -99,21 +99,33 @@ def _fallback_decimal_line(raw: str) -> float | None:
 
 
 def _extract_row_odds(raw: str) -> list[tuple[float, str]]:
-    """Extract ordered American prices and nearest sportsbook labels from row text."""
-    results: list[tuple[float, str]] = []
+    """Extract ordered American prices, including unsigned positives, from row text."""
+    text = raw or ""
     book_pattern = re.compile(r"\b(DK|FD|MGM|CZR|ESPN|BR|FANATICS|HARD ROCK)\b", re.I)
-    for match in ODDS_RE.finditer(raw or ""):
+    tokens: list[tuple[int, int, float]] = []
+    signed_spans: list[tuple[int, int]] = []
+    for match in ODDS_RE.finditer(text):
         token = match.group(1).replace("−", "-").replace("–", "-").replace(" ", "")
         try:
-            odds = float(token)
+            tokens.append((match.start(), match.end(), float(token)))
+            signed_spans.append((match.start(), match.end()))
         except ValueError:
             continue
-        prefix = (raw or "")[max(0, match.start() - 36):match.start()]
+
+    # Positive American odds are sometimes printed without a leading plus.
+    for match in re.finditer(r"(?<![\d.\-+\u2212\u2013])\d{3,4}(?![\d.])", text):
+        if any(start <= match.start() < end for start, end in signed_spans):
+            continue
+        try:
+            tokens.append((match.start(), match.end(), float(match.group(0))))
+        except ValueError:
+            continue
+
+    results: list[tuple[float, str]] = []
+    for start, end, odds in sorted(tokens, key=lambda item: item[0]):
+        prefix = text[max(0, start - 36):start]
         book_matches = list(book_pattern.finditer(prefix))
-        if book_matches:
-            book = book_matches[-1].group(1).upper()
-        else:
-            book = "book-unspecified"
+        book = book_matches[-1].group(1).upper() if book_matches else "Underdog"
         results.append((odds, book))
     return results
 
