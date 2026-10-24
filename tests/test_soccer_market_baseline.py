@@ -64,8 +64,8 @@ def prediction(**overrides):
 
 def test_market_implied_baseline_uses_same_book_no_vig_snapshots_before_kickoff():
     odds = parse_odds_payload(
-        odds_payload(), sport_key="soccer_epl", competition_name="Premier League",
-        snapshot_mode="historical",
+        {"timestamp": "2026-11-01T14:02:00Z", "data": odds_payload()},
+        sport_key="soccer_epl", competition_name="Premier League", snapshot_mode="historical",
         requested_snapshot_at_utc="2026-11-01T14:02:00Z",
         retrieved_at_utc="2026-11-01T14:03:00Z",
     )
@@ -83,8 +83,8 @@ def test_market_implied_baseline_uses_same_book_no_vig_snapshots_before_kickoff(
 
 def test_market_implied_baseline_rejects_snapshots_after_kickoff_and_fuzzy_teams():
     odds_after = parse_odds_payload(
-        odds_payload(kickoff="2026-11-01T13:00:00Z"), sport_key="soccer_epl",
-        competition_name="Premier League", snapshot_mode="historical",
+        {"timestamp": "2026-11-01T14:02:00Z", "data": odds_payload(kickoff="2026-11-01T13:00:00Z")},
+        sport_key="soccer_epl", competition_name="Premier League", snapshot_mode="historical",
         requested_snapshot_at_utc="2026-11-01T14:02:00Z",
         retrieved_at_utc="2026-11-01T14:03:00Z",
     )
