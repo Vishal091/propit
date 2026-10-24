@@ -103,6 +103,8 @@ def test_parse_flash_odds_public_html_table_with_bare_odds():
     assert by_name["Aaron Wiggins"]["bookmaker_under"] == "Underdog"
     assert by_name["Aaron Wiggins"]["market_source"] == "Flash Odds public board"
     assert by_name["Alex Sarr"]["line"] == 14.5
+    assert by_name["Alex Sarr"]["opening_line"] == 13.5
+    assert by_name["Alex Sarr"]["source_line_move"] == 1.0
     assert by_name["Alex Sarr"]["odds_over"] == 104
 
 def test_detect_partial_public_board_and_merge_rendered_rows():
@@ -129,3 +131,11 @@ def test_extract_row_odds_including_unsigned_positive():
         (-204.0, "Underdog"),
     ]
 
+
+
+def test_parse_line_move_is_conservative():
+    from scripts.fetch_public_props import parse_line_move
+
+    assert parse_line_move("+1") == 1.0
+    assert parse_line_move("-0.5") == -0.5
+    assert parse_line_move("—") is None
