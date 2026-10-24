@@ -18,12 +18,12 @@ from src.data.seasons import current_season
 
 log = logging.getLogger(__name__)
 
-SCHEDULE_URL = "https://cdn.nba.com/static/json/staticData/scheduleLeagueV2_1.json"
+SCHEDULE_URL = "https://cdn.nba.com/static/json/staticData/scheduleLeagueV2.json"
 SCHEDULE_URLS = (
     SCHEDULE_URL,
-    "https://cdn.nba.com/static/json/staticData/scheduleLeagueV2.json",
+    "https://cdn.nba.com/static/json/staticData/scheduleLeagueV2_1.json",
 )
-CACHE_PATH = Path(".cache/nba/scheduleLeagueV2_1.json")
+CACHE_PATH = Path(".cache/nba/scheduleLeagueV2.json")
 CACHE_TTL_SECONDS = 6 * 60 * 60
 HEADERS = {
     "User-Agent": (
@@ -55,7 +55,13 @@ def _as_date(value: Any) -> date | None:
         return date.fromisoformat(raw[:10])
     except ValueError:
         pass
-    for fmt in ("%m/%d/%Y %H:%M:%S", "%m/%d/%Y", "%Y-%m-%d %H:%M:%S"):
+    for fmt in (
+        "%m/%d/%Y %H:%M:%S",
+        "%m/%d/%Y %I:%M:%S %p",
+        "%m/%d/%Y %I:%M %p",
+        "%m/%d/%Y",
+        "%Y-%m-%d %H:%M:%S",
+    ):
         try:
             return datetime.strptime(raw, fmt).date()
         except ValueError:
