@@ -202,33 +202,65 @@ def api_history(
 
 @app.get("/api/calibration")
 def api_calibration() -> dict[str, Any]:
+    from scripts.calibrate import _metrics, reliability
+
     holdout = _read_csv(HOLDOUT)
     if holdout.empty or not {"target", "actual_over", "p_over", "calibrated_p_over"}.issubset(holdout.columns):
-        return {"available": False, "summary": [], "rows": []}
-    summaries = []
+        return {"available": False, "summary": [], "reliability": [], "rows": [], "count": 0}
+
+    summaries: list[dict[str, Any]] = []
+    reliability_rows: list[dict[str, Any]] = []
     for target, group in holdout.groupby("target", sort=True):
         actual = pd.to_numeric(group["actual_over"], errors="coerce")
         raw = pd.to_numeric(group["p_over"], errors="coerce")
         calibrated = pd.to_numeric(group["calibrated_p_over"], errors="coerce")
         valid = actual.isin([0, 1]) & raw.notna() & calibrated.notna()
-        if not valid.any():
+        valid_group = group.loc[valid].copy()
+        if valid_group.empty:
             continue
-        actual = actual[valid].astype(float)
-        raw = raw[valid].astype(float)
-        calibrated = calibrated[valid].astype(float)
+        valid_group["actual_over"] = pd.to_numeric(valid_group["actual_over"], errors="coerce").astype(int)
+        valid_group["p_over"] = pd.to_numeric(valid_group["p_over"], errors="coerce")
+        valid_group["calibrated_p_over"] = pd.to_numeric(valid_group["calibrated_p_over"], errors="coerce")
+        raw_metrics = _metrics(valid_group, "p_over")
+        cal_metrics = _metrics(valid_group, "calibrated_p_over")
+        date_values = pd.to_datetime(valid_group["game_date"], errors="coerce") if "game_date" in valid_group else pd.Series(dtype="datetime64[ns]")
         summaries.append({
             "target": str(target),
-            "n": int(valid.sum()),
-            "raw_brier": round(float(((raw - actual) ** 2).mean()), 4),
-            "calibrated_brier": round(float(((calibrated - actual) ** 2).mean()), 4),
-            "raw_hit_rate": round(float(((raw >= 0.5) == (actual == 1)).mean()), 4),
-            "calibrated_hit_rate": round(float(((calibrated >= 0.5) == (actual == 1)).mean()), 4),
+            "n": int(len(valid_group)),
+            "raw_brier": round(float(raw_metrics["brier"]), 4),
+            "calibrated_brier": round(float(cal_metrics["brier"]), 4),
+            "raw_log_loss": round(float(raw_metrics["log_loss"]), 4),
+            "calibrated_log_loss": round(float(cal_metrics["log_loss"]), 4),
+            "raw_hit_rate": round(float(raw_metrics["hit_rate"]), 4),
+            "calibrated_hit_rate": round(float(cal_metrics["hit_rate"]), 4),
+            "raw_roi": raw_metrics["roi"] if pd.notna(raw_metrics["roi"]) else None,
+            "calibrated_roi": cal_metrics["roi"] if pd.notna(cal_metrics["roi"]) else None,
+            "raw_bets": int(raw_metrics["bets"]),
+            "calibrated_bets": int(cal_metrics["bets"]),
+            "timestamped_price_rows": int(cal_metrics["timestamped_rows"]),
+            "eligible_price_rows": int(cal_metrics["priced_rows"]),
+            "raw_net_units": round(float(raw_metrics["net_units"]), 3),
+            "calibrated_net_units": round(float(cal_metrics["net_units"]), 3),
+            "holdout_start": str(date_values.min().date()) if not date_values.empty and date_values.notna().any() else None,
         })
+        for version, probability_col in (("Raw", "p_over"), ("Calibrated", "calibrated_p_over")):
+            buckets = reliability(valid_group, probability_col, n_bins=10)
+            for bucket in buckets.to_dict(orient="records"):
+                reliability_rows.append({"target": str(target), "version": version, **bucket})
+
     cols = [c for c in [
-        "game_date", "player_name", "target", "line", "p_over", "calibrated_p_over",
-        "actual_over", "actual_stat", "raw_brier", "calibrated_brier",
+        "game_date", "snapshot_date", "snapshot_at_utc", "player_name", "target", "line",
+        "p_over", "calibrated_p_over", "actual_over", "actual_stat",
+        "odds_over_american", "odds_under_american", "raw_brier", "calibrated_brier",
     ] if c in holdout.columns]
-    return {"available": bool(summaries), "summary": summaries, "rows": _records(holdout[cols].tail(300).iloc[::-1]), "count": len(holdout)}
+    return {
+        "available": bool(summaries),
+        "summary": summaries,
+        "reliability": reliability_rows,
+        "rows": _records(holdout[cols].tail(300).iloc[::-1]),
+        "count": int(len(holdout)),
+        "roi_policy": "ROI only counts positive-EV bets with both odds and snapshot_at_utc. It is a historical simulation, not proof of future profitability.",
+    }
 
 
 @app.post("/api/refresh")
