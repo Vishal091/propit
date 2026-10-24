@@ -69,3 +69,61 @@ def test_calibration_api_returns_log_loss_reliability_and_timestamped_price_coun
     assert all("calibrated_roi" in row and row["timestamped_price_rows"] == 2 for row in result["summary"])
     assert result["reliability"]
     assert all("bin_center" in row and "calibration_gap" in row for row in result["reliability"])
+
+
+
+def test_workflow_runner_writes_audit_without_capturing_secrets(tmp_path, monkeypatch):
+    import json
+    from src import dashboard
+
+    monkeypatch.setattr(dashboard, "ROOT", tmp_path)
+    monkeypatch.setattr(dashboard, "_run_step", lambda module, args=None: {
+        "step": module,
+        "args": args or [],
+        "ok": False,
+        "returncode": 2,
+        "output": "a sample failure message",
+        "duration_seconds": 0.25,
+        "started_at_utc": "2026-10-24T12:00:00Z",
+    })
+    result = dashboard._run_steps([("src.predict_slate", ["--top", "10"]), ("scripts.archive_predictions", [])])
+    assert result["ok"] is False
+    assert result["audit_recorded"] is True
+    assert len(result["steps"]) == 1
+
+    lines = (tmp_path / "data" / "operations_audit.jsonl").read_text(encoding="utf-8").splitlines()
+    event = json.loads(lines[-1])
+    assert event["event_type"] == "workflow"
+    assert event["ok"] is False
+    assert event["steps"][0]["step"] == "src.predict_slate"
+    assert event["steps"][0]["error_excerpt"] == "a sample failure message"
+    assert "environment" not in json.dumps(event).lower()
+
+
+def test_dashboard_health_endpoint_returns_checklist(tmp_path, monkeypatch):
+    from src import dashboard
+
+    monkeypatch.setattr(dashboard, "ROOT", tmp_path)
+    result = dashboard.api_health()
+    assert result["overall"] == "ERROR"
+    assert result["checks"]
+    assert any(check["name"] == "Model artifacts" for check in result["checks"])
+
+
+def test_dashboard_audit_endpoint_reads_latest_workflow_events(tmp_path, monkeypatch):
+    import json
+    from src import dashboard
+
+    monkeypatch.setattr(dashboard, "ROOT", tmp_path)
+    path = tmp_path / "data" / "operations_audit.jsonl"
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps({
+        "event_type": "workflow",
+        "timestamp_utc": "2026-10-24T12:00:00Z",
+        "ok": True,
+        "steps": [],
+    }) + "\\n", encoding="utf-8")
+
+    result = dashboard.api_audit(limit=5)
+    assert result["count"] == 1
+    assert result["rows"][0]["ok"] is True
