@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PropIt · NBA Prop Intelligence</title>
+<style>
+:root{color-scheme:dark;--bg:#0b0e13;--panel:#121720;--panel2:#171e29;--line:#26303d;--muted:#8d99aa;--text:#ecf2f8;--lime:#c7f36b;--lime2:#a8d850;--blue:#8ac8ff;--red:#ff8a85;--amber:#f5c775;--radius:15px;--shadow:0 16px 40px rgba(0,0,0,.19)}
+*{box-sizing:border-box}
+body{margin:0;background:radial-gradient(900px 380px at 76% -7%,rgba(77,109,148,.15),transparent 62%),var(--bg);color:var(--text);font:14px/1.45 Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}
+button,input,select{font:inherit}button{cursor:pointer}button:disabled{opacity:.5;cursor:wait}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--lime);outline-offset:2px}
+.topbar{height:68px;border-bottom:1px solid rgba(150,168,192,.13);display:flex;align-items:center;justify-content:space-between;padding:0 28px;position:sticky;top:0;z-index:20;background:rgba(11,14,19,.88);backdrop-filter:blur(18px)}
+.brand{display:flex;align-items:center;gap:12px}.brand-mark{width:34px;height:34px;background:var(--lime);color:#11170b;display:grid;place-items:center;border-radius:11px;font-weight:950;letter-spacing:-1.5px;font-size:16px}.brand-name{font-weight:850;letter-spacing:.3px;font-size:16px}.brand-sub{font-size:10px;color:var(--muted);letter-spacing:1.3px;text-transform:uppercase;margin-top:1px}
+.top-right{display:flex;align-items:center;gap:18px;color:var(--muted);font-size:11px;letter-spacing:.8px;text-transform:uppercase}.dot{width:7px;height:7px;border-radius:100%;background:var(--lime);display:inline-block;margin-right:7px;box-shadow:0 0 12px rgba(199,243,107,.45)}
+.layout{display:grid;grid-template-columns:210px minmax(0,1fr);min-height:calc(100vh - 68px)}
+.sidebar{border-right:1px solid rgba(150,168,192,.12);padding:25px 14px;display:flex;flex-direction:column;gap:7px;position:sticky;top:68px;height:calc(100vh - 68px)}
+.nav-label{font-size:10px;color:#626e7e;text-transform:uppercase;letter-spacing:1.5px;padding:8px 13px 10px;font-weight:750}.nav-btn{border:1px solid transparent;background:transparent;color:#9ba7b6;text-align:left;padding:12px 13px;border-radius:10px;display:flex;align-items:center;gap:12px;font-weight:650;font-size:13px;transition:.15s}.nav-btn:hover{color:var(--text);background:rgba(255,255,255,.035)}.nav-btn.active{background:rgba(199,243,107,.095);border-color:rgba(199,243,107,.17);color:var(--lime)}.nav-icon{width:18px;display:inline-flex;justify-content:center;font-size:16px}.side-bottom{margin-top:auto;border:1px solid var(--line);border-radius:12px;padding:13px;background:rgba(255,255,255,.018)}.side-bottom strong{display:block;font-size:11px;margin-bottom:5px}.side-bottom p{font-size:11px;color:var(--muted);margin:0;line-height:1.55}
+main{min-width:0;padding:28px 30px 48px;max-width:1750px;width:100%;margin:0 auto}.pagehead{display:flex;align-items:flex-start;justify-content:space-between;gap:22px;margin-bottom:22px}.eyebrow{font-size:10px;letter-spacing:1.6px;text-transform:uppercase;color:var(--lime);font-weight:800;margin-bottom:8px}.page-title{font-size:27px;line-height:1.15;letter-spacing:-.8px;margin:0 0 8px;font-weight:800}.subtitle{color:var(--muted);font-size:13px;max-width:650px}.head-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap;max-width:670px}.field-label{color:var(--muted);font-size:10px;letter-spacing:.8px;text-transform:uppercase;display:flex;flex-direction:column;gap:5px}
+input[type=date],select{border:1px solid var(--line);border-radius:9px;background:var(--panel2);color:var(--text);padding:9px 10px;min-height:38px}
+.btn{border:1px solid var(--line);border-radius:9px;padding:10px 13px;background:#1a222e;color:var(--text);font-weight:750;font-size:12px;white-space:nowrap;transition:transform .12s,border-color .12s,background .12s}.btn:hover:not(:disabled){transform:translateY(-1px);border-color:#506076}.btn-primary{background:var(--lime);border-color:var(--lime);color:#17200b}.btn-primary:hover:not(:disabled){background:#d6fa8d}.btn-quiet{background:transparent}.btn-danger{color:var(--red)}.btn-sm{padding:7px 10px;font-size:11px}
+.notice{padding:12px 14px;border-radius:11px;border:1px solid var(--line);background:var(--panel);margin-bottom:18px;color:var(--muted);font-size:12px;display:none;white-space:pre-wrap;word-break:break-word}.notice.show{display:block}.notice.success{border-color:rgba(199,243,107,.28);color:#d5f3a0}.notice.error{border-color:rgba(255,138,133,.33);color:#ffb4b0}.notice.info{border-color:rgba(138,200,255,.25);color:#b5dcff}
+.panel{background:linear-gradient(145deg,rgba(22,29,40,.92),rgba(17,22,30,.92));border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);min-width:0}.panel-head{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;padding:19px 20px 15px;border-bottom:1px solid rgba(150,168,192,.11)}.panel-title{margin:0;font-weight:760;font-size:14px}.panel-subtitle{margin:5px 0 0;color:var(--muted);font-size:11px}.panel-body{padding:18px 20px}.metric-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin-bottom:18px}.metric{padding:17px 18px;position:relative;overflow:hidden}.metric:after{content:"";position:absolute;right:-23px;top:-31px;width:90px;height:90px;background:rgba(199,243,107,.045);border-radius:50%}.metric-label{color:var(--muted);font-size:11px;font-weight:650;letter-spacing:.4px}.metric-value{font-weight:850;letter-spacing:-1px;font-size:29px;margin:9px 0 4px;line-height:1.15}.metric-foot{font-size:10px;color:#6e7a8b}.metric-accent{color:var(--lime)}.overview-grid{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(280px,.8fr);gap:16px}.table-panel{margin-top:16px}.table-wrap{overflow:auto;width:100%}table{border-collapse:collapse;width:100%;white-space:nowrap;font-size:12px}thead th{text-align:left;color:#8694a6;text-transform:uppercase;font-size:9px;letter-spacing:.8px;font-weight:800;background:rgba(255,255,255,.016);padding:12px 14px;border-bottom:1px solid var(--line)}tbody td{padding:12px 14px;border-bottom:1px solid rgba(150,168,192,.09);color:#cbd5e1}tbody tr:last-child td{border-bottom:0}tbody tr:hover{background:rgba(255,255,255,.025)}.player-cell{font-weight:760;color:#f1f5f9}.muted-cell{color:var(--muted)}.mono{font-variant-numeric:tabular-nums;font-feature-settings:"tnum";font-family:ui-monospace,SFMono-Regular,Menlo,monospace}.side-pill,.status-pill,.target-pill{display:inline-flex;align-items:center;gap:5px;border-radius:6px;padding:4px 7px;font-size:10px;font-weight:850;letter-spacing:.35px}.side-pill.under{background:rgba(138,200,255,.10);color:var(--blue)}.side-pill.over{background:rgba(199,243,107,.11);color:var(--lime)}.target-pill{background:rgba(255,255,255,.06);color:#aab6c5}.status-pill.good{background:rgba(199,243,107,.09);color:var(--lime)}.status-pill.warn{background:rgba(245,199,117,.09);color:var(--amber)}.status-pill.bad{background:rgba(255,138,133,.09);color:var(--red)}
+.pipeline{display:flex;flex-direction:column;gap:0}.pipe-step{display:grid;grid-template-columns:26px minmax(0,1fr);gap:11px;padding:13px 0;border-bottom:1px solid rgba(150,168,192,.1)}.pipe-step:last-child{border-bottom:0}.pipe-icon{width:25px;height:25px;border-radius:8px;background:rgba(199,243,107,.09);color:var(--lime);display:grid;place-items:center;font-size:12px;font-weight:900}.pipe-copy strong{display:block;font-size:12px;margin-bottom:4px}.pipe-copy span{display:block;color:var(--muted);font-size:11px;line-height:1.5}.status-light{display:inline-block;width:6px;height:6px;border-radius:50%;background:#667487;margin-right:6px}.status-light.ready{background:var(--lime)}.status-light.missing{background:var(--amber)}
+.action-box{background:rgba(199,243,107,.035);border:1px solid rgba(199,243,107,.15);border-radius:12px;padding:15px;margin-top:16px}.action-box h3{font-size:12px;margin:0 0 6px}.action-box p{font-size:11px;color:var(--muted);line-height:1.55;margin:0 0 12px}.action-row{display:flex;align-items:flex-end;flex-wrap:wrap;gap:9px}.date-row{display:flex;align-items:center;gap:9px;flex-wrap:wrap}.help-text{font-size:11px;color:var(--muted);line-height:1.6}.warning-text{color:var(--amber)}.section{display:none}.section.active{display:block}.section-intro{display:flex;justify-content:space-between;align-items:flex-end;gap:15px;margin:2px 0 18px}.section-intro h2{font-size:20px;letter-spacing:-.45px;margin:0 0 5px}.section-intro p{margin:0;color:var(--muted);font-size:12px}.toolbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.log-box{display:none;margin-top:14px;padding:15px;border:1px solid var(--line);border-radius:12px;background:#080b10}.log-box.show{display:block}.log-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:9px;color:#a5b1c1;font-size:11px;font-weight:750}.log-content{margin:0;white-space:pre-wrap;word-break:break-word;max-height:270px;overflow:auto;color:#b4c3d5;font:11px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace}
+.empty{padding:40px 20px;text-align:center;color:var(--muted);font-size:12px}.empty strong{display:block;color:var(--text);margin-bottom:5px;font-size:13px}.tabchips{display:flex;gap:4px;background:#0d1118;border:1px solid var(--line);padding:4px;border-radius:10px}.chip{border:0;background:transparent;color:var(--muted);border-radius:7px;padding:7px 10px;font-weight:750;font-size:11px}.chip.active{background:#232d3b;color:var(--text)}.cal-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-bottom:16px}.cal-card{padding:16px}.cal-card .small-label{color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:.8px}.cal-card strong{display:block;font-size:22px;letter-spacing:-.5px;margin:7px 0 3px}.cal-card p{margin:0;color:var(--muted);font-size:10px}.brier{display:flex;gap:12px;align-items:center}.brier .mini{width:44px;height:5px;background:#2b3543;border-radius:9px;overflow:hidden}.brier .mini span{height:100%;display:block;background:var(--lime)}.footnote{color:#758194;font-size:10px;line-height:1.6;margin-top:14px}.spinner{display:inline-block;width:11px;height:11px;border:2px solid rgba(14,20,7,.22);border-top-color:#17200b;border-radius:50%;animation:spin .7s linear infinite;vertical-align:-1px;margin-right:6px}@keyframes spin{to{transform:rotate(360deg)}}.footer{padding:28px 2px 0;color:#5f6b7c;font-size:10px;text-align:center}
+@media(max-width:1120px){main{padding:23px 20px}.pagehead{flex-direction:column}.head-actions{justify-content:flex-start;max-width:none}.metric-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.overview-grid{grid-template-columns:1fr}}
+@media(max-width:760px){.topbar{padding:0 15px}.top-right .connection-label{display:none}.layout{grid-template-columns:1fr}.sidebar{height:auto;position:sticky;top:68px;z-index:10;flex-direction:row;overflow:auto;border-right:0;border-bottom:1px solid var(--line);padding:8px;background:rgba(11,14,19,.95)}.nav-label,.side-bottom{display:none}.nav-btn{white-space:nowrap;padding:9px 11px;gap:8px}.nav-icon{font-size:13px;width:auto}main{padding:20px 13px 35px}.page-title{font-size:24px}.head-actions{align-items:stretch}.head-actions>*{flex-grow:1}.cal-summary{grid-template-columns:1fr}.metric-value{font-size:25px}.panel-head,.panel-body{padding-left:14px;padding-right:14px}.pagehead{gap:17px}.overview-grid{gap:12px}}
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <div class="brand-mark">P.</div>
+    <div><div class="brand-name">PropIt <span style="color:var(--lime)">/</span></div><div class="brand-sub">NBA prop intelligence</div></div>
+  </div>
+  <div class="top-right"><span><span class="dot" id="connection-dot"></span><span class="connection-label" id="connection-label">LOCAL WORKSPACE</span></span><button id="reload-btn" class="btn btn-quiet btn-sm" title="Reload data">↻ Refresh view</button></div>
+</header>
+<div class="layout">
+  <aside class="sidebar">
+    <div class="nav-label">Workspace</div>
+    <button class="nav-btn active" data-tab="overview"><span class="nav-icon">◫</span>Overview</button>
+    <button class="nav-btn" data-tab="slate"><span class="nav-icon">⌁</span>Today's slate</button>
+    <button class="nav-btn" data-tab="history"><span class="nav-icon">◷</span>History & results</button>
+    <button class="nav-btn" data-tab="calibration"><span class="nav-icon">⌗</span>Calibration</button>
+    <div class="side-bottom"><strong>Local-first workspace</strong><p>Your model, market snapshots and history stay on this PC. Only the existing public-data scripts connect to the internet.</p></div>
+  </aside>
+  <main>
+    <div class="pagehead">
+      <div>
+        <div class="eyebrow">Research desk · 01 / Analytics</div>
+        <h1 class="page-title" id="page-title">The slate at a glance</h1>
+        <div class="subtitle" id="page-subtitle">Run your market refresh, inspect candidates, and keep every pregame prediction tied to its eventual result.</div>
+      </div>
+      <div class="head-actions">
+        <button id="refresh-btn" class="btn">↻ Refresh slate</button>
+        <label class="field-label">NBA game date<input type="date" id="workflow-date"></label>
+        <button id="workflow-btn" class="btn btn-primary">Run pregame workflow ↗</button>
+      </div>
+    </div>
+    <div id="notice" class="notice"></div>
+
+    <section class="section active" id="section-overview">
+      <div class="metric-grid">
+        <div class="panel metric"><div class="metric-label">Scored market lines</div><div class="metric-value" id="metric-markets">—</div><div class="metric-foot" id="metric-market-foot">No snapshot loaded</div></div>
+        <div class="panel metric"><div class="metric-label">Shortlist candidates</div><div class="metric-value metric-accent" id="metric-shortlist">—</div><div class="metric-foot">Passed configured model screens</div></div>
+        <div class="panel metric"><div class="metric-label">Archived predictions</div><div class="metric-value" id="metric-history">—</div><div class="metric-foot" id="metric-history-foot">Pregame history records</div></div>
+        <div class="panel metric"><div class="metric-label">Settled outcomes</div><div class="metric-value" id="metric-settled">—</div><div class="metric-foot" id="metric-settled-foot">Results confirmed from game logs</div></div>
+      </div>
+      <div class="overview-grid">
+        <div class="panel">
+          <div class="panel-head"><div><h2 class="panel-title">Shortlist preview</h2><p class="panel-subtitle">Best modeled market candidates in the current snapshot</p></div><button class="btn btn-quiet btn-sm" data-go="slate">View full slate →</button></div>
+          <div class="table-wrap"><table><thead><tr><th>Player / stat</th><th>Line</th><th>Side</th><th>Model prob.</th><th>Edge</th><th>EV / unit</th></tr></thead><tbody id="overview-table"><tr><td colspan="6" class="empty">Loading slate…</td></tr></tbody></table></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><div><h2 class="panel-title">Workflow status</h2><p class="panel-subtitle">Files and data currently available to PropIt</p></div><span class="status-pill good" id="status-pill">LOCAL</span></div>
+          <div class="panel-body">
+            <div class="pipeline">
+              <div class="pipe-step"><div class="pipe-icon">1</div><div class="pipe-copy"><strong><span class="status-light" id="light-lines"></span>Public market snapshot</strong><span id="text-lines">Waiting for market data.</span></div></div>
+              <div class="pipe-step"><div class="pipe-icon">2</div><div class="pipe-copy"><strong><span class="status-light" id="light-predictions"></span>Model predictions</strong><span id="text-predictions">Waiting for a scored slate.</span></div></div>
+              <div class="pipe-step"><div class="pipe-icon">3</div><div class="pipe-copy"><strong><span class="status-light" id="light-history"></span>Pregame history</strong><span id="text-history">Archive a slate before tip-off.</span></div></div>
+              <div class="pipe-step"><div class="pipe-icon">4</div><div class="pipe-copy"><strong><span class="status-light" id="light-calibration"></span>Holdout evaluation</strong><span id="text-calibration">Needs a sufficient sample of settled predictions.</span></div></div>
+            </div>
+            <div class="action-box"><h3>One-click pregame workflow</h3><p>Refresh public markets → regenerate predictions → archive the exact snapshot for your selected NBA game date. Use it before games begin.</p><button class="btn btn-primary" data-action="workflow">Run full pregame workflow ↗</button></div>
+          </div>
+        </div>
+      </div>
+      <div class="panel table-panel">
+        <div class="panel-head"><div><h2 class="panel-title">Results queue</h2><p class="panel-subtitle">Pending records can be settled after NBA box scores update</p></div><button class="btn btn-sm" data-go="history">Open history →</button></div>
+        <div class="panel-body"><div class="help-text" id="queue-summary">No archived history yet. Once you archive predictions before tip-off, this area tracks results without manual CSV editing.</div>
+          <div class="action-row" style="margin-top:14px"><button class="btn btn-sm" data-go="history">Review archived props</button><button class="btn btn-sm" data-action="settle">Settle selected date</button><button class="btn btn-sm" data-action="calibrate">Run calibration</button></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="section-slate">
+      <div class="section-intro"><div><h2>Today's slate</h2><p>Ranked estimates from your current model and imported markets.</p></div><div class="toolbar"><div class="tabchips"><button class="chip active" data-view="shortlist">Shortlist</button><button class="chip" data-view="all">All markets</button></div><button class="btn btn-sm" data-action="refresh">Refresh & score ↻</button></div></div>
+      <div class="panel">
+        <div class="panel-head"><div><h2 class="panel-title" id="slate-count-title">Market candidates</h2><p class="panel-subtitle">Probabilities remain experimental until validated against a chronological holdout.</p></div><span class="status-pill warn">RESEARCH ONLY</span></div>
+        <div class="table-wrap"><table><thead><tr><th>Rank</th><th>Player</th><th>Stat</th><th>Line</th><th>Side</th><th>Model prob.</th><th>Market prob.</th><th>Edge</th><th>EV / unit</th><th>Odds O / U</th><th>Data age</th><th>Screen</th></tr></thead><tbody id="slate-table"><tr><td colspan="12" class="empty">Loading…</td></tr></tbody></table></div>
+      </div>
+      <p class="footnote">Public odds can be stale or unavailable in your region. Verify the exact player, stat line, market prices and game availability before acting. Model edge is not proof of a profitable bet.</p>
+    </section>
+
+    <section class="section" id="section-history">
+      <div class="section-intro"><div><h2>History & results</h2><p>Archived probabilities linked to their game date and settled stat line.</p></div><div class="toolbar"><select id="history-filter" aria-label="Filter history"><option value="all">All records</option><option value="pending">Pending</option><option value="settled">Settled</option><option value="push">Pushes</option></select><button class="btn btn-sm" data-action="settle">Settle results ↻</button></div></div>
+      <div class="panel">
+        <div class="panel-head"><div><h2 class="panel-title">Prediction ledger</h2><p class="panel-subtitle" id="history-count">This ledger is maintained by the app; no manual CSV editing is needed.</p></div><span class="status-pill" id="history-badge">NO HISTORY</span></div>
+        <div class="table-wrap"><table><thead><tr><th>Game date</th><th>Player</th><th>Stat</th><th>Line</th><th>Model P(over)</th><th>Over odds</th><th>Under odds</th><th>Actual</th><th>Outcome</th><th>Status</th></tr></thead><tbody id="history-table"><tr><td colspan="10" class="empty">No history yet.</td></tr></tbody></table></div>
+      </div>
+      <div class="action-box"><h3>Settle a completed game date</h3><p>Select the NBA-local slate date. Settlement uses the free public NBA player-game log. If the feed is not updated yet, the action will report that and leave the history unchanged.</p><div class="action-row"><label class="field-label">Game date<input type="date" id="settle-date"></label><button class="btn btn-primary" data-action="settle">Settle selected date ↗</button></div></div>
+      <p class="footnote">DNPs, postponed games and missing public-feed rows remain pending for manual review. Pushes are identified separately and excluded from over/under scoring.</p>
+    </section>
+
+    <section class="section" id="section-calibration">
+      <div class="section-intro"><div><h2>Calibration & backtest</h2><p>Measure probability quality out-of-sample. Do not trust 85% until results support it.</p></div><button class="btn btn-primary" id="calibrate-btn">Run calibration ↗</button></div>
+      <div class="cal-summary">
+        <div class="panel cal-card"><div class="small-label">Evaluation mode</div><strong>Time split</strong><p>Earliest 70% of dates for fitting; later 30% for holdout.</p></div>
+        <div class="panel cal-card"><div class="small-label">Calibration metric</div><strong>Brier score</strong><p>Lower is better. Tests the quality of probability estimates.</p></div>
+        <div class="panel cal-card"><div class="small-label">Trading simulation</div><strong>Holdout only</strong><p>ROI is reported only when pregame prices are recorded.</p></div>
+      </div>
+      <div class="panel">
+        <div class="panel-head"><div><h2 class="panel-title">Per-stat holdout report</h2><p class="panel-subtitle">Raw model vs probability-calibrated predictions on later dates</p></div><span class="status-pill warn" id="cal-status">NOT RUN</span></div>
+        <div class="table-wrap"><table><thead><tr><th>Stat</th><th>Holdout rows</th><th>Raw Brier ↓</th><th>Calibrated Brier ↓</th><th>Raw hit rate</th><th>Calibrated hit rate</th></tr></thead><tbody id="cal-table"><tr><td colspan="6" class="empty">Run calibration when enough settled history is available.</td></tr></tbody></table></div>
+      </div>
+      <div class="panel table-panel"><div class="panel-head"><div><h2 class="panel-title">Recent holdout predictions</h2><p class="panel-subtitle">The later-date rows used for the evaluation, with raw and calibrated probabilities.</p></div><span class="help-text" id="cal-row-count">No holdout results yet</span></div><div class="table-wrap"><table><thead><tr><th>Game date</th><th>Player</th><th>Stat</th><th>Line</th><th>Raw P(over)</th><th>Calibrated P(over)</th><th>Actual stat</th><th>Outcome</th></tr></thead><tbody id="holdout-table"><tr><td colspan="8" class="empty">Holdout report will appear here after a successful run.</td></tr></tbody></table></div></div>
+      <div class="footnote">Minimum sample checks are applied separately by stat. Probabilities from the current quantile-spread model are approximate, not calibrated confidence. Historical metrics are not a guarantee of future performance.</div>
+    </section>
+
+    <div id="run-log" class="log-box"><div class="log-top"><span>WORKFLOW ACTIVITY</span><button class="btn btn-quiet btn-sm" id="hide-log">Hide logs</button></div><pre id="log-content" class="log-content"></pre></div>
+    <div class="footer">PROPIT LOCAL WORKSPACE · PREDICTIONS ARE EXPERIMENTAL · VERIFY MARKETS INDEPENDENTLY</div>
+  </main>
+</div>
+<script>
+(function(){
+  "use strict";
+  var activeTab = "overview";
+  var slateView = "shortlist";
+  var busy = false;
+  var lastSlate = [];
+  var lastHistory = [];
+
+  function $(id){ return document.getElementById(id); }
+  function escapeHtml(value){
+    return String(value === null || value === undefined ? "" : value).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
+  }
+  function num(value){ var n=Number(value); return value === null || value === undefined || value === "" || !isFinite(n) ? null : n; }
+  function fixed(value, digits){ var n=num(value); return n===null ? "—" : n.toFixed(digits===undefined?2:digits); }
+  function pct(value){ var n=num(value); return n===null ? "—" : (n*100).toFixed(1)+"%"; }
+  function money(value){ var n=num(value); return n===null ? "—" : (n>0?"+":"")+String(n); }
+  function signed(value, digits){
+    var n=num(value); if(n===null) return "—";
+    return (n>0?"+":"")+(n*100).toFixed(digits===undefined?1:digits)+"%";
+  }
+  function localDate(){
+    var d=new Date(); return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
+  }
+  function stamp(value){
+    if(!value) return "Not available";
+    var d=new Date(value); if(isNaN(d.getTime())) return String(value);
+    return d.toLocaleString([], {month:"short",day:"numeric",hour:"2-digit",minute:"2-digit"});
+  }
+  function showNotice(message, type){
+    var node=$("notice"); node.textContent=message||""; node.className="notice show "+(type||"info");
+  }
+  function hideNotice(){ $("notice").className="notice"; }
+  function showLog(result){
+    var box=$("run-log"), parts=[];
+    if(result && result.message) parts.push(result.message);
+    if(result && Array.isArray(result.steps)){
+      result.steps.forEach(function(s){ parts.push("\n> "+s.step+" ["+(s.ok?"OK":"FAILED")+"]\n"+(s.output||"(no output)")); });
+    }
+    $("log-content").textContent=parts.join("\n") || "No log output.";
+    box.classList.add("show");
+  }
+  function setBusy(value, label){
+    busy=value;
+    ["refresh-btn","workflow-btn","reload-btn","calibrate-btn"].forEach(function(id){
+      if($(id)) $(id).disabled=value;
+    });
+    document.querySelectorAll("[data-action]").forEach(function(btn){btn.disabled=value;});
+    document.querySelectorAll("[data-view]").forEach(function(btn){btn.disabled=value;});
+    if(value){
+      $("connection-label").textContent="WORKFLOW RUNNING";
+      $("connection-dot").style.background="var(--amber)";
+      showNotice((label||"Working…")+" This may take several minutes if public NBA data is slow.","info");
+    }
+  }
+  async function request(path, options){
+    var response=await fetch(path, options||{});
+    var data=await response.json().catch(function(){ return {message:"The dashboard returned a non-JSON response."}; });
+    if(!response.ok) throw new Error(typeof data.detail==="string"?data.detail:JSON.stringify(data.detail||data));
+    return data;
+  }
+  function post(path, body){
+    var options={method:"POST",headers:{"Content-Type":"application/json"}};
+    if(body) options.body=JSON.stringify(body);
+    return request(path,options);
+  }
+  function tab(title, subtitle, id){
+    activeTab=id;
+    document.querySelectorAll(".nav-btn").forEach(function(btn){btn.classList.toggle("active",btn.dataset.tab===id);});
+    document.querySelectorAll(".section").forEach(function(section){section.classList.toggle("active",section.id==="section-"+id);});
+    $("page-title").textContent=title;
+    $("page-subtitle").textContent=subtitle;
+  }
+  var tabData={
+    overview:["The slate at a glance","Run your market refresh, inspect candidates, and keep every pregame prediction tied to its eventual result."],
+    slate:["Today's slate","Ranked model projections against the available public market snapshot. Every estimate is experimental."],
+    history:["History & results","A persistent ledger of what PropIt predicted before a game, plus outcomes after the public box score updates."],
+    calibration:["Calibration & backtest","Validate probabilities using later dates the calibration model did not fit on."]
+  };
+  document.querySelectorAll(".nav-btn").forEach(function(btn){
+    btn.addEventListener("click",function(){var id=btn.dataset.tab;tab(tabData[id][0],tabData[id][1],id); if(id==="slate") loadSlate(); if(id==="history") loadHistory(); if(id==="calibration") loadCalibration();});
+  });
+  document.querySelectorAll("[data-go]").forEach(function(btn){
+    btn.addEventListener("click",function(){var id=btn.dataset.go;tab(tabData[id][0],tabData[id][1],id);if(id==="slate")loadSlate();if(id==="history")loadHistory();});
+  });
+  $("reload-btn").addEventListener("click", function(){refreshView();});
+  $("hide-log").addEventListener("click",function(){$("run-log").classList.remove("show");});
+  document.querySelectorAll("[data-view]").forEach(function(btn){
+    btn.addEventListener("click",function(){
+      slateView=btn.dataset.view;
+      document.querySelectorAll("[data-view]").forEach(function(b){b.classList.toggle("active",b.dataset.view===slateView);});
+      loadSlate();
+    });
+  });
+  $("history-filter").addEventListener("change",loadHistory);
+  $("refresh-btn").addEventListener("click",function(){doAction("/api/refresh",null,"Refreshing markets and rebuilding predictions…");});
+  $("workflow-btn").addEventListener("click",function(){runWorkflow();});
+  $("calibrate-btn").addEventListener("click",function(){doAction("/api/calibrate",null,"Evaluating historical probabilities…",true);});
+  document.querySelectorAll("[data-action]").forEach(function(btn){
+    btn.addEventListener("click",function(){
+      var action=btn.dataset.action;
+      if(action==="workflow") runWorkflow();
+      else if(action==="refresh") doAction("/api/refresh",null,"Refreshing markets and rebuilding predictions…");
+      else if(action==="settle") runSettlement();
+      else if(action==="calibrate") doAction("/api/calibrate",null,"Evaluating historical probabilities…",true);
+    });
+  });
+  async function doAction(path, body, label, isCalibration){
+    if(busy) return;
+    setBusy(true,label); $("run-log").classList.add("show");
+    try{
+      var result=await post(path,body);
+      showLog(result);
+      if(result.ok){showNotice(result.message||"Action completed successfully.", "success");await refreshView(); if(isCalibration){await loadCalibration();}}
+      else{showNotice(result.message||"Action did not complete. Review the workflow log.", "error");if(isCalibration)await loadCalibration();}
+    }catch(err){showNotice("Action failed: "+err.message,"error");showLog({message:err.message,steps:[]});}
+    finally{setBusy(false);$("connection-label").textContent="LOCAL WORKSPACE";$("connection-dot").style.background="var(--lime)";}
+  }
+  async function runWorkflow(){
+    var gameDate=$("workflow-date").value;
+    if(!gameDate){showNotice("Choose the NBA-local game date for this slate first.","error");return;}
+    if(busy)return;
+    setBusy(true,"Refreshing public markets, generating predictions, and archiving the pregame snapshot…");
+    $("run-log").classList.add("show");
+    try{
+      var result=await post("/api/pregame-workflow",{game_date:gameDate});
+      showLog(result);
+      if(result.ok){
+        showNotice(result.message+" The archive is intended for pre-tip-off use.","success");
+        await refreshView(); await loadHistory();
+      }else showNotice(result.message||"Pregame workflow stopped. Review the log.","error");
+    }catch(err){showNotice("Pregame workflow failed: "+err.message,"error");showLog({message:err.message,steps:[]});}
+    finally{setBusy(false);$("connection-label").textContent="LOCAL WORKSPACE";$("connection-dot").style.background="var(--lime)";}
+  }
+  async function runSettlement(){
+    var gameDate=$("settle-date").value;
+    if(!gameDate){showNotice("Choose the NBA-local game date to settle.","error");return;}
+    await doAction("/api/settle",{game_date:gameDate},"Checking public NBA box scores and settling matching history rows…");
+    await loadHistory();
+  }
+  async function refreshView(){
+    try{
+      var state=await request("/api/state");
+      renderState(state);
+      await loadSlate();
+      if(activeTab==="history") await loadHistory();
+      if(activeTab==="calibration") await loadCalibration();
+      $("connection-label").textContent="LOCAL WORKSPACE";
+      $("connection-dot").style.background="var(--lime)";
+    }catch(err){showNotice("Could not load dashboard data: "+err.message,"error");$("connection-label").textContent="SERVER ERROR";$("connection-dot").style.background="var(--red)";}
+  }
+  function markStatus(id,ready){$(id).classList.toggle("ready",!!ready);$(id).classList.toggle("missing",!ready);}
+  function renderState(s){
+    $("metric-markets").textContent=Number(s.market_rows||0).toLocaleString();
+    $("metric-shortlist").textContent=Number(s.shortlist_rows||0).toLocaleString();
+    $("metric-history").textContent=Number(s.history_rows||0).toLocaleString();
+    $("metric-settled").textContent=Number(s.settled_rows||0).toLocaleString();
+    $("metric-market-foot").textContent=s.lines_updated?"Snapshot updated "+stamp(s.lines_updated):"No public snapshot found";
+    $("metric-history-foot").textContent=(s.pending_rows||0)+" pending · "+(s.push_rows||0)+" pushes";
+    $("metric-settled-foot").textContent="Results confirmed from public game logs";
+    $("text-lines").textContent=s.lines_updated?"Updated "+stamp(s.lines_updated)+" · "+Number(s.market_rows||0)+" imported markets":"Run the public market importer to start.";
+    $("text-predictions").textContent=s.latest_updated?"Updated "+stamp(s.latest_updated)+" · "+Number(s.latest_rows||0)+" scored rows":"No prediction file yet.";
+    $("text-history").textContent=s.history_updated?Number(s.history_rows||0)+" records · last changed "+stamp(s.history_updated):"No archive yet. Use the pregame workflow before tip-off.";
+    $("text-calibration").textContent=s.holdout_available?"Holdout report available; open Calibration to inspect it.":"Requires enough settled historical rows across multiple dates.";
+    markStatus("light-lines",!!s.lines_updated && Number(s.market_rows)>0);
+    markStatus("light-predictions",!!s.latest_updated && Number(s.latest_rows)>0);
+    markStatus("light-history",Number(s.history_rows)>0);
+    markStatus("light-calibration",!!s.holdout_available);
+    $("status-pill").textContent=Number(s.latest_rows)>0?"MODEL READY":"AWAITING SLATE";
+    $("status-pill").className="status-pill "+(Number(s.latest_rows)>0?"good":"warn");
+    $("queue-summary").textContent=Number(s.history_rows)>0
+      ? Number(s.pending_rows||0)+" pending predictions · "+Number(s.settled_rows||0)+" settled outcomes · "+Number(s.push_rows||0)+" pushes. Use the History tab to inspect the ledger or settle a date."
+      : "No archived history yet. Once you archive predictions before tip-off, this area tracks results without manual CSV editing.";
+  }
+  function sideClass(side){return String(side||"").toUpperCase()==="UNDER"?"under":String(side||"").toUpperCase()==="OVER"?"over":"";}
+  function sidePill(side){if(!side)return "—";return '<span class="side-pill '+sideClass(side)+'">'+escapeHtml(String(side).toUpperCase())+'</span>';}
+  function targetPill(target){return '<span class="target-pill">'+escapeHtml(target||"—")+'</span>';}
+  function emptyRow(cols,title,sub){return '<tr><td colspan="'+cols+'" class="empty"><strong>'+escapeHtml(title)+'</strong>'+escapeHtml(sub||"")+'</td></tr>';}
+  function renderOverview(rows){
+    var top=rows.slice(0,7);
+    $("overview-table").innerHTML=top.length?top.map(function(r){
+      var probability=num(r.selected_model_probability); if(probability===null){probability=num(r.recommended_side==="OVER"?r.model_p_over:r.model_p_under);}
+      var ev=r.selected_ev_per_1_unit;
+      return '<tr><td><span class="player-cell">'+escapeHtml(r.player_name)+'</span><div class="muted-cell" style="font-size:10px;margin-top:3px">'+escapeHtml(r.target)+'</div></td><td class="mono">'+fixed(r.line,1)+'</td><td>'+sidePill(r.recommended_side)+'</td><td class="mono">'+pct(probability)+'</td><td class="mono">'+signed(r.selected_model_edge)+'</td><td class="mono">'+fixed(ev,3)+'</td></tr>';
+    }).join(""):emptyRow(6,"No shortlist candidates yet","Refresh and score available markets to populate this table.");
+  }
+  async function loadSlate(){
+    try{
+      var data=await request("/api/slate?view="+encodeURIComponent(slateView));
+      lastSlate=data.rows||[];
+      $("slate-count-title").textContent=(data.count||0).toLocaleString()+" "+(slateView==="shortlist"?"shortlist candidates":"scored market rows");
+      renderSlate(lastSlate);
+      if(slateView==="shortlist")renderOverview(lastSlate);
+      return data;
+    }catch(err){$("slate-table").innerHTML=emptyRow(12,"Could not load slate",err.message);}
+  }
+  function renderSlate(rows){
+    if(!rows.length){$("slate-table").innerHTML=emptyRow(12,slateView==="shortlist"?"No qualifying candidates":"No scored markets","Run Refresh Slate after confirming the model artifacts are available.");return;}
+    $("slate-table").innerHTML=rows.map(function(r,i){
+      var prob=num(r.selected_model_probability);
+      if(prob===null) prob=num(String(r.recommended_side).toUpperCase()==="UNDER"?r.model_p_under:r.model_p_over);
+      if(prob===null) prob=num(r.p_over);
+      return '<tr><td class="mono">'+escapeHtml(r.rank||i+1)+'</td><td><span class="player-cell">'+escapeHtml(r.player_name)+'</span><div class="muted-cell" style="font-size:10px;margin-top:3px">ID '+escapeHtml(r.player_id)+'</div></td><td>'+targetPill(r.target)+'</td><td class="mono">'+fixed(r.line,1)+'</td><td>'+sidePill(r.recommended_side)+'</td><td class="mono">'+pct(prob)+'</td><td class="mono">'+pct(r.selected_market_no_vig_probability)+'</td><td class="mono">'+signed(r.selected_model_edge)+'</td><td class="mono">'+fixed(r.selected_ev_per_1_unit,3)+'</td><td class="mono">'+money(r.odds_over_american)+' / '+money(r.odds_under_american)+'</td><td class="mono">'+(num(r.data_age_days)===null?"—":escapeHtml(r.data_age_days)+"d")+'</td><td><span class="status-pill '+(r.shortlist_status==="SHORTLIST_CANDIDATE"?"good":"warn")+'">'+escapeHtml(r.shortlist_status||"—")+'</span></td></tr>';
+    }).join("");
+  }
+  async function loadHistory(){
+    try{
+      var filter=$("history-filter").value||"all";
+      var data=await request("/api/history?limit=1000&status="+encodeURIComponent(filter));
+      lastHistory=data.rows||[];
+      $("history-count").textContent=Number(data.count||0).toLocaleString()+" records matching this view. All records remain stored in the local history ledger.";
+      $("history-badge").textContent=data.count?Number(data.count).toLocaleString()+" ROWS":"NO HISTORY";
+      $("history-badge").className="status-pill "+(data.count?"good":"warn");
+      renderHistory(lastHistory);
+    }catch(err){$("history-table").innerHTML=emptyRow(10,"Could not load history",err.message);}
+  }
+  function renderHistory(rows){
+    if(!rows.length){$("history-table").innerHTML=emptyRow(10,"No records in this view","Run the pregame workflow before a game to start the ledger.");return;}
+    $("history-table").innerHTML=rows.map(function(r){
+      var actual=r.actual_stat===null||r.actual_stat===undefined||r.actual_stat===""?"—":fixed(r.actual_stat,1);
+      var ov=num(r.actual_over);
+      var outcome=ov===1?'<span class="status-pill good">OVER</span>':ov===0?'<span class="status-pill bad">UNDER</span>':(String(r.settlement_status).toUpperCase()==="PUSH"?'<span class="status-pill warn">PUSH</span>':'—');
+      var stat=String(r.settlement_status||"PENDING").toUpperCase();
+      var cl=stat==="SETTLED"?"good":stat==="PUSH"?"warn":"";
+      return '<tr><td class="mono">'+escapeHtml(r.game_date||"—")+'</td><td><span class="player-cell">'+escapeHtml(r.player_name||"—")+'</span><div class="muted-cell" style="font-size:10px;margin-top:3px">ID '+escapeHtml(r.player_id||"—")+'</div></td><td>'+targetPill(r.target)+'</td><td class="mono">'+fixed(r.line,1)+'</td><td class="mono">'+pct(r.p_over)+'</td><td class="mono">'+money(r.odds_over_american)+'</td><td class="mono">'+money(r.odds_under_american)+'</td><td class="mono">'+actual+'</td><td>'+outcome+'</td><td><span class="status-pill '+cl+'">'+escapeHtml(stat)+'</span></td></tr>';
+    }).join("");
+  }
+  async function loadCalibration(){
+    try{
+      var data=await request("/api/calibration");
+      if(!data.available){
+        $("cal-status").textContent="NOT AVAILABLE";$("cal-status").className="status-pill warn";
+        $("cal-table").innerHTML=emptyRow(6,"No holdout report available","Archive pregame slates, settle the outcomes, then run calibration after the sample-size checks can pass.");
+        $("holdout-table").innerHTML=emptyRow(8,"No holdout rows","The calibrator needs sufficient data per stat and a later-date holdout.");
+        $("cal-row-count").textContent="No holdout results yet";return;
+      }
+      $("cal-status").textContent="HOLDOUT READY";$("cal-status").className="status-pill good";
+      $("cal-table").innerHTML=data.summary.map(function(s){
+        return '<tr><td>'+targetPill(s.target)+'</td><td class="mono">'+s.n+'</td><td class="mono">'+fixed(s.raw_brier,4)+'</td><td class="mono">'+fixed(s.calibrated_brier,4)+'</td><td class="mono">'+pct(s.raw_hit_rate)+'</td><td class="mono">'+pct(s.calibrated_hit_rate)+'</td></tr>';
+      }).join("");
+      var rows=data.rows||[];
+      $("holdout-table").innerHTML=rows.length?rows.map(function(r){
+        var ov=num(r.actual_over);
+        var outcome=ov===1?'<span class="status-pill good">OVER</span>':ov===0?'<span class="status-pill bad">UNDER</span>':"—";
+        return '<tr><td class="mono">'+escapeHtml(r.game_date||"—")+'</td><td class="player-cell">'+escapeHtml(r.player_name||"—")+'</td><td>'+targetPill(r.target)+'</td><td class="mono">'+fixed(r.line,1)+'</td><td class="mono">'+pct(r.p_over)+'</td><td class="mono">'+pct(r.calibrated_p_over)+'</td><td class="mono">'+fixed(r.actual_stat,1)+'</td><td>'+outcome+'</td></tr>';
+      }).join(""):emptyRow(8,"No valid holdout rows","No result rows were available.");
+      $("cal-row-count").textContent=Number(data.count||rows.length).toLocaleString()+" holdout rows";
+    }catch(err){$("cal-table").innerHTML=emptyRow(6,"Could not load calibration",err.message);}
+  }
+  async function initialize(){
+    $("workflow-date").value=localDate();$("settle-date").value=localDate();
+    await refreshView();await loadHistory();await loadCalibration();
+  }
+  initialize();
+})();
+</script>
+</body>
+</html>
