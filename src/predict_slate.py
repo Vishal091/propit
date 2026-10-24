@@ -339,7 +339,7 @@ def main() -> None:
             odds_under = _number_or_none(row.get("odds_under"))
             bookmaker_value = row.get("bookmaker")
             bookmaker = "" if bookmaker_value is None or pd.isna(bookmaker_value) else str(bookmaker_value).strip()
-            line_source = "public_web_import" if bookmaker.casefold().startswith("probetrics public board") else "user_supplied"
+            line_source = "public_web_import" if bookmaker.casefold().startswith(("probetrics public board", "flash odds public board")) else "user_supplied"
             records.append(_prediction_record(player_id, display_name, target, last_game_date, pred, line_source, odds_over, odds_under, bookmaker))
     else:
         for (player_id, target), (feature_row, player_name, last_game_date) in sorted(feature_lookup.items()):
