@@ -27,6 +27,7 @@ class TrainedModel:
     q90: XGBRegressor
     residual_std: float
     feature_means: dict[str, float] | None = None
+    feature_stds: dict[str, float] | None = None
 
     def save(self, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -89,6 +90,7 @@ def train(features_df: pd.DataFrame, target: str) -> TrainedModel:
         target=target, q10=q10, q50=q50, q90=q90,
         residual_std=max(residual_std, 1e-6),
         feature_means={column: float(X_tr[column].mean()) for column in cols},
+        feature_stds={column: float(X_tr[column].std(ddof=0)) for column in cols},
     )
     bundle.save(ARTIFACTS / f"model_{target}.joblib")
     return bundle
