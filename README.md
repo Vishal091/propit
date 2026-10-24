@@ -77,6 +77,7 @@ Once there is enough historical data, point calibration at this persistent histo
     .\.venv\Scripts\python.exe -m scripts.calibrate data\prediction_history.csv
 
 Do **not** backfill prior days using today's predictions or today's prices. The October 23 output files were not archived with a game date and snapshot timestamp, so they should not be treated as a clean historical pregame record. A useful calibration sample needs multiple dates and enough settled props per target.
+
 ## Backtest settled historical props (new)
 
 A meaningful probability/ROI backtest needs historical predictions made before the game, the exact line available at that time, the odds available at that time, and the settled result. Current prop-board snapshots cannot substitute for archived odds.
