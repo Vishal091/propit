@@ -89,6 +89,13 @@ def _read_audit(path: Path, limit: int = 250) -> list[dict[str, Any]]:
     return events[-limit:][::-1]
 
 
+def read_audit_events(path: str | Path, limit: int = 40) -> list[dict[str, Any]]:
+    """Public wrapper for retrieving recent audit entries, newest first."""
+    if limit < 1:
+        return []
+    return _read_audit(Path(path), limit=limit)
+
+
 def append_audit_event(event: dict[str, Any], path: Path | None = None) -> None:
     """Append one workflow result as JSONL. Never store environment variables or credentials."""
     destination = path or (DEFAULT_ROOT / AUDIT_RELATIVE_PATH)
