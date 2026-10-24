@@ -12,6 +12,33 @@ from src.model.train import train
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("train_model")
 SEASONS = completed_seasons(count=2)
+REQUIRED_CONTEXT_FEATURES = (
+    "last5_MIN_mean",
+    "last5_FGA_mean",
+    "last5_FTA_mean",
+    "last5_TOV_mean",
+    "last5_usage_proxy_mean",
+    "last5_usage_proxy_per_minute_mean",
+)
+MIN_CONTEXT_COVERAGE = 0.80
+
+
+def validate_context_feature_coverage(features_df: pd.DataFrame, target: str) -> None:
+    """Fail instead of training a model while new workload features are unavailable."""
+    problems = []
+    for column in REQUIRED_CONTEXT_FEATURES:
+        if column not in features_df.columns:
+            problems.append(f"{column}=missing column")
+            continue
+        coverage = float(features_df[column].notna().mean()) if len(features_df) else 0.0
+        if coverage < MIN_CONTEXT_COVERAGE:
+            problems.append(f"{column}={coverage:.1%} non-missing")
+    if problems:
+        raise RuntimeError(
+            f"{target} training data lacks Phase 2 minutes/usage context "
+            f"(need at least {MIN_CONTEXT_COVERAGE:.0%} coverage): "
+            + ", ".join(problems)
+        )
 
 
 def assemble_training_frame(seasons: list[str] | None = None) -> pd.DataFrame:
@@ -62,6 +89,7 @@ def main() -> None:
     trained_targets = 0
     for target in ("PTS", "REB", "AST"):
         feats = build_player_features(games, target=target, opponent_team_metrics=team_metrics)
+        validate_context_feature_coverage(feats, target)
         feature_context_stds = feats[["opp_def_rating", "opp_pace"]].std(ddof=0)
         if feature_context_stds.isna().any() or (feature_context_stds <= 1e-6).any():
             raise RuntimeError(
