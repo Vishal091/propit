@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 import pytest
 import requests
 
+from src.soccer.insights import attach_market_odds
 from src.soccer.odds import (
     ODDS_COLUMNS,
     OddsProviderError,
@@ -155,3 +156,76 @@ def test_market_filter_and_region_validation_happens_before_http():
         fetch_league_odds("epl", markets="player_props", api_key="x", session=FakeSession(FakeResponse([])))
     with pytest.raises(ValueError, match="Unsupported"):
         fetch_league_odds("ucl", api_key="x", session=FakeSession(FakeResponse([])))
+
+
+
+def pick(market_key="home_win", probability=0.55):
+    return {
+        "league": "Premier League",
+        "competition_name": "Premier League",
+        "competition_id": "openfootball:england:premierleague",
+        "match_id": "event-1",
+        "match_date": "2026-11-01",
+        "kickoff_time_local": "16:30",
+        "home_team": "Arsenal",
+        "away_team": "Chelsea",
+        "market": "Home win" if market_key == "home_win" else "Over 2.5",
+        "market_key": market_key,
+        "market_line": 2.5 if market_key in {"over", "under"} else None,
+        "model_probability": probability,
+        "rank_score": 0.52,
+    }
+
+
+def test_attach_market_odds_requires_fresh_exact_pre_kickoff_and_calculates_experimental_ev():
+    odds_rows = parse_odds_payload(
+        live_payload(),
+        sport_key="soccer_epl",
+        competition_name="Premier League",
+        retrieved_at_utc="2026-11-01T14:02:00Z",
+    )
+    rows = attach_market_odds(
+        [pick()], odds_rows,
+        now_utc=datetime(2026, 11, 1, 14, 3, tzinfo=timezone.utc),
+    )
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["odds_available"] is True
+    assert row["best_odds_decimal"] == pytest.approx(2.0)
+    assert row["market_probability"] == pytest.approx(0.4827586, abs=1e-5)
+    assert row["market_edge_probability"] == pytest.approx(0.55 - 0.4827586, abs=1e-5)
+    assert row["expected_value_per_unit"] == pytest.approx(0.1)
+    assert row["odds_status"] == "EXPERIMENTAL POSITIVE EV"
+    assert row["best_odds_bookmaker"] == "Book A"
+
+
+def test_attach_market_odds_does_not_match_wrong_totals_line_or_in_play_quotes():
+    odds_rows = parse_odds_payload(
+        live_payload(),
+        sport_key="soccer_epl",
+        competition_name="Premier League",
+        retrieved_at_utc="2026-11-01T14:02:00Z",
+    )
+    totals_pick = pick(market_key="over")
+    totals_pick["market_line"] = 3.5
+    rows = attach_market_odds(
+        [totals_pick], odds_rows,
+        now_utc=datetime(2026, 11, 1, 14, 3, tzinfo=timezone.utc),
+    )
+    assert rows[0]["odds_available"] is False
+    assert rows[0]["odds_status"] == "NO EXACT MARKET / LINE"
+
+    in_play = attach_market_odds(
+        [pick()], odds_rows,
+        now_utc=datetime(2026, 11, 1, 17, 0, tzinfo=timezone.utc),
+    )
+    assert in_play[0]["odds_available"] is False
+    assert in_play[0]["odds_status"] == "STALE OR NOT PRE-KICKOFF"
+
+
+def test_attach_market_odds_returns_no_edge_without_odds_and_validates_age_gates():
+    rows = attach_market_odds([pick()], [], now_utc=datetime(2026, 11, 1, 14, 3, tzinfo=timezone.utc))
+    assert rows[0]["market_edge_probability"] is None
+    assert rows[0]["expected_value_per_unit"] is None
+    with pytest.raises(ValueError):
+        attach_market_odds([pick()], [], max_quote_age_minutes=0)
