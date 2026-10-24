@@ -159,7 +159,7 @@ Generate a dated JSON and Markdown report from PowerShell:
 
     .\.venv\Scripts\python.exe -m scripts.ops_report
 
-Reports are written to `reports/operations/operations-YYYY-MM-DD.json` and `.md`. Re-running the report on the same UTC date updates that date's report.
+Reports are written to `reports/operations/operations-YYYY-MM-DD.json` and `.md`. Re-running the report on the same UTC date updates that date's report. When a valid chronological holdout exists, the report also includes per-stat raw/calibrated Brier score, log loss and hit rate from `predictions/backtest_holdout.csv`. These describe that saved holdout only; they do not reconstruct missing prices or guarantee future profitability.
 
 Create a ZIP backup:
 
