@@ -81,11 +81,21 @@ def _file_stamp(path: Path) -> str | None:
 
 
 def _date_already_archived(game_date: str) -> bool:
+    """Check snapshot date, not per-player match dates, to avoid duplicate snapshots."""
     history = _read_csv(HISTORY)
-    if history.empty or "game_date" not in history.columns:
+    if history.empty:
         return False
-    dates = pd.to_datetime(history["game_date"], errors="coerce").dt.strftime("%Y-%m-%d")
-    return bool(dates.eq(game_date).any())
+    if "snapshot_date" in history.columns:
+        dates = history["snapshot_date"].copy()
+        if "game_date" in history.columns:
+            missing = dates.isna() | dates.astype(str).str.strip().isin(["", "nan", "NaT", "<NA>"])
+            dates = dates.where(~missing, history["game_date"])
+    elif "game_date" in history.columns:
+        dates = history["game_date"]
+    else:
+        return False
+    normalized = pd.to_datetime(dates, errors="coerce").dt.strftime("%Y-%m-%d")
+    return bool(normalized.eq(game_date).any())
 
 
 def _run_step(module: str, args: list[str] | None = None, timeout_seconds: int = 600) -> dict[str, Any]:
@@ -240,7 +250,7 @@ def api_pregame_workflow(request: GameDateRequest) -> dict[str, Any]:
     if _date_already_archived(game_date):
         return {
             "ok": False, "steps": [],
-            "message": f"A snapshot for {game_date} is already in data/prediction_history.csv. No files were changed. Use Refresh Slate for a new view, or intentionally archive another snapshot from the command line.",
+            "message": f"A snapshot dated {game_date} is already in data/prediction_history.csv. No files were changed. Use Refresh Slate for a new view, or intentionally archive another snapshot from the command line.",
         }
     plan = [
         ("scripts.fetch_public_props", []),
