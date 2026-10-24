@@ -168,14 +168,18 @@ def _next_match_for_player(
     scheduled = next_games.get(team_abbreviation, {}) if team_abbreviation else {}
     match_date = row_text("match_date") or scheduled.get("match_date", "")
     opponent = row_text("opponent_team") or scheduled.get("opponent_team", "")
+    opponent_abbreviation = row_text("opponent_abbreviation") or scheduled.get("opponent_abbreviation", "")
     matchup = row_text("matchup") or scheduled.get("matchup", "")
+    if not matchup and team_abbreviation and opponent_abbreviation:
+        matchup = f"{team_abbreviation} vs {opponent_abbreviation}"
     return {
         "team": team_name,
         "team_abbreviation": team_abbreviation,
         "match_date": match_date,
         "opponent_team": opponent,
-        "opponent_abbreviation": scheduled.get("opponent_abbreviation", ""),
+        "opponent_abbreviation": opponent_abbreviation,
         "matchup": matchup,
+        "home_away": scheduled.get("home_away", ""),
     }
 
 
@@ -264,6 +268,7 @@ def _prediction_record(
         "team_abbreviation": match_info.get("team_abbreviation") or player_team.get("team_abbreviation", ""),
         "match_date": match_info.get("match_date", ""), "opponent_team": match_info.get("opponent_team", ""),
         "opponent_abbreviation": match_info.get("opponent_abbreviation", ""), "matchup": match_info.get("matchup", ""),
+        "home_away": match_info.get("home_away", ""),
         "target": target, "line": pred.line, "line_source": line_source, "last_game_date": last_game_date,
         "model_expected_value": round(pred.expected_value, 3),
         "interval_80_low": round(pred.interval_80[0], 3),
