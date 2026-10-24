@@ -51,6 +51,20 @@ Output files:
 
 If the importer errors or finds zero markets, inspect the logs. Do not interpret missing data as a pick. Prices may be stale, US-market-specific, or unavailable in your region. Check actual player/market IDs, lines and both side prices before using any row.
 
+## Run the local dashboard
+
+PropIt includes a browser-based local dashboard with tabs for Overview, Today's Slate, History & Results, and Calibration. It uses the project's existing FastAPI/Uvicorn dependencies and keeps data files behind the interface.
+
+Start it from PowerShell:
+
+    Set-Location C:\Users\visha\propit
+    .\.venv\Scripts\python.exe -m src.dashboard
+
+Then open http://127.0.0.1:8765 in your browser. Keep the PowerShell window open while using the dashboard; press Ctrl+C in that window to stop it. The server binds to 127.0.0.1 and is intended for local use.
+
+Use **Refresh Slate** to import the public prop board and regenerate model predictions. Use **Run Pregame Workflow** to do those steps and archive the slate for the selected NBA-local game date in one action; only run it before tip-off. Use **History & Results** to settle a completed date after the public NBA game logs update, and **Calibration** to run the chronological holdout evaluation when enough settled history exists. The activity log shows command output and errors, so a blocked public endpoint or missing model artifact is visible rather than silently ignored.
+
+The CSV files remain internal storage for the existing pipeline and audit trail; normal viewing and workflow actions happen in the dashboard. No bets are placed automatically. Verify public lines and prices independently.
 ## Start a persistent pregame history
 
 The current output files are overwritten on each prediction run. To evaluate probabilities later, save a slate to a persistent history file **before tip-off**. This records the exact line, both odds, model probability, player ID, and the game date you specify.
