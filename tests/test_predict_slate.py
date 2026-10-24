@@ -4,7 +4,7 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from src.features.build import build_team_game_metrics
+from src.features.build import build_team_game_metrics, feature_columns
 from src.predict_slate import _build_latest_features, _validate_model_feature_context
 
 
@@ -95,16 +95,31 @@ def test_next_game_features_skip_players_without_a_future_schedule_match():
 
 
 
+
 def test_old_model_artifact_is_rejected_before_prediction():
     class LegacyBundle:
         pass
 
-    with pytest.raises(RuntimeError, match="predates the next-game/opponent-context update"):
+    with pytest.raises(RuntimeError, match="no saved feature schema and is outdated"):
         _validate_model_feature_context(LegacyBundle(), "PTS")
+
+
+def test_phase_one_artifact_with_old_feature_schema_is_rejected():
+    class PhaseOneBundle:
+        feature_names = (
+            "rest_days", "is_home", "opp_def_rating", "opp_pace",
+            "last5_REB_mean", "last10_REB_mean", "last20_REB_mean",
+            "ema_REB", "season_REB_mean",
+        )
+        feature_stds = {"opp_def_rating": 4.5, "opp_pace": 3.2}
+
+    with pytest.raises(RuntimeError, match="older feature schema"):
+        _validate_model_feature_context(PhaseOneBundle(), "REB")
 
 
 def test_model_artifact_requires_varying_opponent_features():
     class FixedContextBundle:
+        feature_names = tuple(feature_columns("REB"))
         feature_stds = {
             "opp_def_rating": 0.0,
             "opp_pace": 2.1,
@@ -116,6 +131,7 @@ def test_model_artifact_requires_varying_opponent_features():
 
 def test_retrained_model_with_varying_opponent_features_is_accepted():
     class CurrentBundle:
+        feature_names = tuple(feature_columns("AST"))
         feature_stds = {
             "opp_def_rating": 4.5,
             "opp_pace": 3.2,
