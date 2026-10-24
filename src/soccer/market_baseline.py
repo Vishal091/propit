@@ -60,11 +60,14 @@ def build_market_implied_comparisons(
     odds_rows: Iterable[Mapping[str, Any]],
     *,
     max_hours_before_kickoff: float = 168.0,
+    max_quote_age_hours: float = 24.0,
     total_goals_line: float = 2.5,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """Attach historic market-implied 1X2/totals probabilities for exact matched fixtures."""
     if not math.isfinite(max_hours_before_kickoff) or max_hours_before_kickoff <= 0:
         raise ValueError("max_hours_before_kickoff must be finite and positive")
+    if not math.isfinite(max_quote_age_hours) or max_quote_age_hours <= 0:
+        raise ValueError("max_quote_age_hours must be finite and positive")
     if not math.isfinite(total_goals_line) or total_goals_line < 0:
         raise ValueError("total_goals_line must be finite and non-negative")
 
@@ -102,7 +105,10 @@ def build_market_implied_comparisons(
             if abs((kickoff.date() - match_day).days) > 1:
                 continue
             hours_before = (kickoff - snapshot).total_seconds() / 3600.0
-            if hours_before < 0 or hours_before > max_hours_before_kickoff or market_update > kickoff:
+            quote_age_at_snapshot = (snapshot - market_update).total_seconds() / 3600.0
+            if (hours_before < 0 or hours_before > max_hours_before_kickoff
+                    or quote_age_at_snapshot < 0 or quote_age_at_snapshot > max_quote_age_hours
+                    or market_update > kickoff):
                 continue
             event_matches.append((quote, kickoff, snapshot))
         if not event_matches:
@@ -172,6 +178,7 @@ def build_market_implied_comparisons(
         "matched_totals_predictions": matches_totals,
         "unmatched_predictions": no_match,
         "max_hours_before_kickoff": max_hours_before_kickoff,
+        "max_quote_age_hours": max_quote_age_hours,
         "total_goals_line": total_goals_line,
         "market_method": "Equal-weighted average of complete same-book de-vigged probabilities; exact team names/league key, exact totals line, and snapshots no later than kickoff.",
         "warning": "Market benchmarks are only valid when historical snapshots were licensed, imported, and captured before kickoff. Unmatched fixtures are excluded; no current price is backfilled into past matches.",
