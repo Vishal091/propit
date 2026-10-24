@@ -14,7 +14,11 @@ import pandas as pd
 DEFAULT_MARKET_HISTORY = Path("data/prop_market_history.csv")
 HISTORY_COLUMNS = [
     "market_snapshot_at_utc", "market_source", "player_id", "player_name", "target",
-    "line", "odds_over", "odds_under", "bookmaker", "bookmaker_over", "bookmaker_under",
+    "line", "opening_line", "source_line_move", "odds_over", "odds_under",
+    "bookmaker", "bookmaker_over", "bookmaker_under", "previous_line",
+    "previous_odds_over", "previous_odds_under", "prior_snapshot_at_utc",
+    "line_move_from_previous", "line_move_from_open", "over_decimal_odds_move",
+    "under_decimal_odds_move", "market_prior_snapshot_count",
 ]
 
 
