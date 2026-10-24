@@ -152,6 +152,10 @@ input[type=date],select{border:1px solid var(--line);border-radius:9px;backgroun
         <div class="table-wrap"><table><thead><tr><th>Component</th><th>Status</th><th>Details</th><th>Age (hours)</th><th>Rows</th></tr></thead><tbody id="ops-checks-table"><tr><td colspan="5" class="empty">Open Operations to inspect data health.</td></tr></tbody></table></div>
       </div>
       <div class="panel table-panel">
+        <div class="panel-head"><div><h2 class="panel-title">Holdout probability quality</h2><p class="panel-subtitle">Uses the saved chronological holdout only; lower Brier and log loss are better.</p></div><span class="help-text" id="ops-performance-note">No holdout metrics available.</span></div>
+        <div class="table-wrap"><table><thead><tr><th>Stat</th><th>N</th><th>Raw Brier</th><th>Calibrated Brier</th><th>Raw log loss</th><th>Calibrated log loss</th><th>Raw hit rate</th><th>Calibrated hit rate</th></tr></thead><tbody id="ops-performance-table"><tr><td colspan="8" class="empty">Run calibration after enough settled history is available.</td></tr></tbody></table></div>
+      </div>
+      <div class="panel table-panel">
         <div class="panel-head"><div><h2 class="panel-title">Workflow audit trail</h2><p class="panel-subtitle">Recent refresh, settlement, calibration, report and backup actions. Failure excerpts are kept for troubleshooting; credentials are not recorded.</p></div><span class="help-text" id="ops-audit-count">No recent events loaded</span></div>
         <div class="table-wrap"><table><thead><tr><th>Time (UTC)</th><th>Result</th><th>Workflow steps</th><th>Duration</th><th>Details</th></tr></thead><tbody id="ops-audit-table"><tr><td colspan="5" class="empty">No workflow audit events yet.</td></tr></tbody></table></div>
       </div>
@@ -481,6 +485,12 @@ input[type=date],select{border:1px solid var(--line);border-radius:9px;backgroun
         var age=num(c.age_hours);
         return '<tr><td class="player-cell">'+escapeHtml(c.name||"—")+'</td><td><span class="status-pill '+cls+'">'+escapeHtml(s)+'</span></td><td title="'+escapeHtml(c.path||"")+'">'+escapeHtml(c.detail||"")+'</td><td class="mono">'+(age===null?"—":fixed(age,2))+'</td><td class="mono">'+(c.rows===null||c.rows===undefined?"—":escapeHtml(c.rows))+'</td></tr>';
       }).join(""):emptyRow(5,"No health checks","No check results were returned.");
+      var performance=health.performance||{};
+      var performanceRows=performance.by_target||[];
+      $("ops-performance-note").textContent=performance.note||"No holdout metrics available.";
+      $("ops-performance-table").innerHTML=performanceRows.length?performanceRows.map(function(r){
+        return '<tr><td>'+targetPill(r.target)+'</td><td class="mono">'+escapeHtml(r.n)+'</td><td class="mono">'+fixed(r.raw_brier,4)+'</td><td class="mono">'+fixed(r.calibrated_brier,4)+'</td><td class="mono">'+fixed(r.raw_log_loss,4)+'</td><td class="mono">'+fixed(r.calibrated_log_loss,4)+'</td><td class="mono">'+pct(r.raw_hit_rate)+'</td><td class="mono">'+pct(r.calibrated_hit_rate)+'</td></tr>';
+      }).join(""):emptyRow(8,"No valid holdout metrics","Run Calibration after enough saved and settled pregame predictions exist.");
       var audit=await request("/api/audit?limit=40");
       var events=audit.rows||[];
       $("ops-audit-count").textContent=Number(audit.count||0)+" events shown · "+Number(summary.recent_workflow_failures_24h||0)+" failure(s) in last 24h";
@@ -496,6 +506,7 @@ input[type=date],select{border:1px solid var(--line);border-radius:9px;backgroun
     }catch(err){
       $("ops-checks-table").innerHTML=emptyRow(5,"Could not load system health",err.message);
       $("ops-audit-table").innerHTML=emptyRow(5,"Could not load workflow audit",err.message);
+      $("ops-performance-table").innerHTML=emptyRow(8,"Could not load holdout metrics",err.message);
     }
   }
   async function initialize(){
