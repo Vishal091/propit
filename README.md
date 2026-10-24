@@ -79,11 +79,30 @@ The Soccer analytics tab supports historical score imports and future fixture fo
 
 The calibration panel reads chronological rolling-origin predictions from predictions/soccer/backtest.csv and reports top-outcome reliability buckets plus expected calibration error. It requires at least 30 predictions per model before displaying the sample gate as met. Calibration is descriptive: it does not fit a corrected probability transformation or guarantee future performance.
 
-The current implementation **does not include bookmaker odds, confirmed lineups, injuries or suspension feeds**. As a result, its Best Picks ranking is a model-confidence shortlist—not a market-value assessment. Do not interpret probability as an edge, EV, or profitable recommendation. Populate and validate reliable, time-stamped odds before adding those claims.
+Best Picks can optionally compare the model with timestamped, same-book de-vigged prices imported from The Odds API. **This improves evidence but does not make the model calibrated or profitable**. A model edge / expected-value estimate appears only when fresh, exact-team, exact-market quotes from before kickoff match the fixture. Unmatched, stale, mismatched-line, in-play and post-kickoff prices are excluded. Confirm current market availability, price and local rules before using any displayed comparison. Confirmed lineups, injuries and suspensions are still not integrated because the project has no approved historical pre-match snapshot source for them.
+
+### Optional time-stamped bookmaker odds (The Odds API)
+
+The importer uses [The Odds API v4](https://the-odds-api.com/liveapi/guides/v4/index.html). Its terms allow derived analytics subject to its current terms, but do not treat this as permission to redistribute a raw odds feed; see the [provider terms](https://the-odds-api.com/terms-and-conditions.html). Availability depends on your subscription and region. Historical odds require an eligible paid plan.
+
+Set your key in the same PowerShell session before starting the dashboard:
+
+    $env:THE_ODDS_API_KEY = "your-api-key"
+    .\.venv\Scripts\python.exe -m src.dashboard
+
+Alternatively, add `THE_ODDS_API_KEY=your-api-key` to the root `.env` file (already ignored by git). Never commit the key, screenshot it, or paste it into issues/PRs. The dashboard checks for the key without displaying it and does not fetch odds automatically on page load.
+
+In Soccer analytics, click **Import live odds · Top 5**. This requests 1X2 and totals markets for five leagues in UK + Europe regions; estimated maximum usage is about 20 credits per run, though empty responses may cost less. The provider charges live requests by market and region; check its documentation and your account's quota first.
+
+For historical evaluation, select a timezone-aware UTC timestamp such as `2026-10-24T14:00:00Z`, tick the historical cost acknowledgment, and click **Import historical 1X2 snapshot**. The dashboard intentionally limits this to one market and one region across five leagues (about 50 credits, though actual usage can be lower), and only runs it after explicit confirmation. Historical queries can return the nearest available prior snapshot, so the report records the actual snapshot time, requested time and each bookmaker market update time.
+
+Odds are stored locally in `data/soccer/odds_snapshots.csv` with market and snapshot timestamps; exact duplicates are skipped but distinct observations are retained. Never assume current prices existed in the past: the market-implied backtest uses only exact-team, exact-league markets with a snapshot and quote update no later than kickoff, within the configured pre-kickoff window. Unmatched historical games are excluded rather than filled with live prices.
 
 To run the chronological backtest, import historical results and use the Soccer tab's **Run backtest** action or:
 
     .\.venv\Scripts\python.exe -m scripts.backtest_soccer --input data\soccer\matches.csv --min-history 30
+
+The backtest reports independent Poisson, experimental Dixon-Coles and a league-average baseline overall, by competition and by season. When `data/soccer/odds_snapshots.csv` contains suitable historical snapshots, it also adds the market-implied benchmark and writes `predictions/soccer/market_comparison.csv`. Current live odds are intentionally not substituted into historical backtests. A benchmark based on a smaller subset of matches should not be compared as though all models shared the same sample.
 
 ## Run the local dashboard
 
