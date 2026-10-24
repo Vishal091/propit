@@ -110,7 +110,11 @@ Run the chronological calibration and holdout evaluation:
 
     .\.venv\Scripts\python.exe -m scripts.calibrate data\settled_props.csv
 
-The script fits isotonic calibration only on the earliest 70% of dates, then evaluates on the later 30%. It reports hit rate, Brier score, log loss, and probability reliability buckets separately for PTS/REB/AST. It writes holdout rows with calibrated probabilities to predictions/backtest_holdout.csv. It refuses to report a target's holdout metrics if the sample is too small. Historical ROI simulation only counts rows that have both over/under prices and a recorded snapshot_at_utc timestamp from the archived pregame workflow; untimestamped or reconstructed prices are excluded from ROI, although their settled outcomes may still be used to evaluate probability quality.
+To start a new calibration baseline deliberately, use:
+
+    .\.venv\Scripts\python.exe -m scripts.calibrate data\settled_props.csv --reset-cutoffs
+
+On the first successful run, the script chooses a chronological split (around 70% of dates for calibration fitting and later dates for holdout), then saves each stat's holdout start in data/calibration_cutoffs.json. Later runs retain those boundaries and add newer dates to the holdout rather than moving the cutoff. Use --reset-cutoffs only to establish a new evaluation baseline. It reports hit rate, Brier score, log loss, and probability reliability buckets separately for PTS/REB/AST. It writes holdout rows with calibrated probabilities to predictions/backtest_holdout.csv and refuses to report a target's holdout metrics if the sample is too small. Historical ROI simulation only counts rows that have both over/under prices and a recorded snapshot_at_utc timestamp from the archived pregame workflow; untimestamped or reconstructed prices are excluded from ROI, although their settled outcomes may still be used to evaluate probability quality.
 
 **Do not train and evaluate calibration on the same rows.** Use predictions stored before outcomes were known; reconstructing predictions from today's model after seeing results creates leakage. Brier/log loss measure probability quality; ROI is meaningful only when the historical odds and line were genuinely available pregame.
 
