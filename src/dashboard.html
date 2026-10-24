@@ -121,9 +121,10 @@ input[type=date],select{border:1px solid var(--line);border-radius:9px;backgroun
         <div class="panel cal-card"><div class="small-label">Trading simulation</div><strong>Holdout only</strong><p>ROI is reported only when pregame prices are recorded.</p></div>
       </div>
       <div class="panel">
-        <div class="panel-head"><div><h2 class="panel-title">Per-stat holdout report</h2><p class="panel-subtitle">Raw model vs probability-calibrated predictions on later dates</p></div><span class="status-pill warn" id="cal-status">NOT RUN</span></div>
-        <div class="table-wrap"><table><thead><tr><th>Stat</th><th>Holdout rows</th><th>Raw Brier ↓</th><th>Calibrated Brier ↓</th><th>Raw hit rate</th><th>Calibrated hit rate</th></tr></thead><tbody id="cal-table"><tr><td colspan="6" class="empty">Run calibration when enough settled history is available.</td></tr></tbody></table></div>
+        <div class="panel-head"><div><h2 class="panel-title">Per-stat holdout report</h2><p class="panel-subtitle">Lower Brier/log loss is better. ROI only uses archived, timestamped prices.</p></div><span class="status-pill warn" id="cal-status">NOT RUN</span></div>
+        <div class="table-wrap"><table><thead><tr><th>Stat</th><th>Holdout N</th><th>Raw Brier ↓</th><th>Cal Brier ↓</th><th>Raw log loss ↓</th><th>Cal log loss ↓</th><th>Raw hit</th><th>Cal hit</th><th>Timestamped prices</th><th>Cal EV bets</th><th>Cal ROI</th></tr></thead><tbody id="cal-table"><tr><td colspan="11" class="empty">Run calibration when enough settled history is available.</td></tr></tbody></table></div>
       </div>
+      <div class="panel table-panel"><div class="panel-head"><div><h2 class="panel-title">Reliability by probability bucket</h2><p class="panel-subtitle">Compare predicted probability with observed over rate on the later-date holdout. Positive gap means outcomes occurred more often than predicted.</p></div><span class="help-text">Raw vs calibrated</span></div><div class="table-wrap"><table><thead><tr><th>Stat</th><th>Version</th><th>Probability bin</th><th>N</th><th>Mean predicted</th><th>Observed over rate</th><th>Observed − predicted</th></tr></thead><tbody id="reliability-table"><tr><td colspan="7" class="empty">Reliability bins appear after a successful calibration run.</td></tr></tbody></table></div></div>
       <div class="panel table-panel"><div class="panel-head"><div><h2 class="panel-title">Recent holdout predictions</h2><p class="panel-subtitle">The later-date rows used for the evaluation, with raw and calibrated probabilities.</p></div><span class="help-text" id="cal-row-count">No holdout results yet</span></div><div class="table-wrap"><table><thead><tr><th>Game date</th><th>Player</th><th>Stat</th><th>Line</th><th>Raw P(over)</th><th>Calibrated P(over)</th><th>Actual stat</th><th>Outcome</th></tr></thead><tbody id="holdout-table"><tr><td colspan="8" class="empty">Holdout report will appear here after a successful run.</td></tr></tbody></table></div></div>
       <div class="footnote">Minimum sample checks are applied separately by stat. Probabilities from the current quantile-spread model are approximate, not calibrated confidence. Historical metrics are not a guarantee of future performance.</div>
     </section>
@@ -390,22 +391,33 @@ input[type=date],select{border:1px solid var(--line);border-radius:9px;backgroun
       var data=await request("/api/calibration");
       if(!data.available){
         $("cal-status").textContent="NOT AVAILABLE";$("cal-status").className="status-pill warn";
-        $("cal-table").innerHTML=emptyRow(6,"No holdout report available","Archive pregame slates, settle the outcomes, then run calibration after the sample-size checks can pass.");
+        $("cal-table").innerHTML=emptyRow(11,"No holdout report available","Archive pregame slates, settle outcomes, then run calibration after sample-size checks pass.");
+        $("reliability-table").innerHTML=emptyRow(7,"No reliability data","Reliability bins need a successful chronological holdout.");
         $("holdout-table").innerHTML=emptyRow(8,"No holdout rows","The calibrator needs sufficient data per stat and a later-date holdout.");
         $("cal-row-count").textContent="No holdout results yet";return;
       }
       $("cal-status").textContent="HOLDOUT READY";$("cal-status").className="status-pill good";
       $("cal-table").innerHTML=data.summary.map(function(s){
-        return '<tr><td>'+targetPill(s.target)+'</td><td class="mono">'+s.n+'</td><td class="mono">'+fixed(s.raw_brier,4)+'</td><td class="mono">'+fixed(s.calibrated_brier,4)+'</td><td class="mono">'+pct(s.raw_hit_rate)+'</td><td class="mono">'+pct(s.calibrated_hit_rate)+'</td></tr>';
-      }).join("");
+        var roi=num(s.calibrated_roi);
+        return '<tr><td>'+targetPill(s.target)+'</td><td class="mono">'+s.n+'</td><td class="mono">'+fixed(s.raw_brier,4)+'</td><td class="mono">'+fixed(s.calibrated_brier,4)+'</td><td class="mono">'+fixed(s.raw_log_loss,4)+'</td><td class="mono">'+fixed(s.calibrated_log_loss,4)+'</td><td class="mono">'+pct(s.raw_hit_rate)+'</td><td class="mono">'+pct(s.calibrated_hit_rate)+'</td><td class="mono">'+Number(s.timestamped_price_rows||0)+'</td><td class="mono">'+Number(s.calibrated_bets||0)+'</td><td class="mono">'+(roi===null?"—":pct(roi))+'</td></tr>';
+      }).join("")||emptyRow(11,"No valid stat groups","No valid settled holdout rows were found.");
+      var reliabilityRows=data.reliability||[];
+      $("reliability-table").innerHTML=reliabilityRows.length?reliabilityRows.map(function(r){
+        var gap=num(r.calibration_gap);
+        var gapClass=gap===null?"":gap>0.02?"good":gap < -0.02?"bad":"";
+        return '<tr><td>'+targetPill(r.target)+'</td><td>'+escapeHtml(r.version)+'</td><td class="mono">'+pct(r.bin_lower)+'–'+pct(r.bin_upper)+'</td><td class="mono">'+r.count+'</td><td class="mono">'+pct(r.mean_predicted)+'</td><td class="mono">'+pct(r.observed_over_rate)+'</td><td class="mono '+gapClass+'">'+signed(gap,1)+'</td></tr>';
+      }).join(""):emptyRow(7,"No reliability bins","No non-empty probability buckets were available.");
       var rows=data.rows||[];
       $("holdout-table").innerHTML=rows.length?rows.map(function(r){
         var ov=num(r.actual_over);
         var outcome=ov===1?'<span class="status-pill good">OVER</span>':ov===0?'<span class="status-pill bad">UNDER</span>':"—";
         return '<tr><td class="mono">'+escapeHtml(r.game_date||"—")+'</td><td class="player-cell">'+escapeHtml(r.player_name||"—")+'</td><td>'+targetPill(r.target)+'</td><td class="mono">'+fixed(r.line,1)+'</td><td class="mono">'+pct(r.p_over)+'</td><td class="mono">'+pct(r.calibrated_p_over)+'</td><td class="mono">'+fixed(r.actual_stat,1)+'</td><td>'+outcome+'</td></tr>';
       }).join(""):emptyRow(8,"No valid holdout rows","No result rows were available.");
-      $("cal-row-count").textContent=Number(data.count||rows.length).toLocaleString()+" holdout rows";
-    }catch(err){$("cal-table").innerHTML=emptyRow(6,"Could not load calibration",err.message);}
+      $("cal-row-count").textContent=Number(data.count||rows.length).toLocaleString()+" holdout rows · ROI uses timestamped prices only";
+    }catch(err){
+      $("cal-table").innerHTML=emptyRow(11,"Could not load calibration",err.message);
+      $("reliability-table").innerHTML=emptyRow(7,"Could not load reliability",err.message);
+    }
   }
   async function initialize(){
     $("workflow-date").value=localDate();$("settle-date").value=localDate();
