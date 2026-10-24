@@ -72,6 +72,95 @@ def _header_index(headers: list[str], wanted: str) -> int | None:
     return None
 
 
+def _fallback_decimal_line(raw: str) -> float | None:
+    """Find the repeated half-point line in a card/row-style prop layout."""
+    without_odds = ODDS_RE.sub(" ", raw or "")
+    candidates = [float(value) for value in re.findall(r"(?<![\d.])(\d{1,3}\.\d+)(?![\d.])", without_odds)]
+    if not candidates:
+        return None
+    # Prop boards often show the same line in the form/history column and
+    # again in the actual Line column. Prefer the most repeated value.
+    counts: dict[float, int] = {}
+    for value in candidates:
+        counts[value] = counts.get(value, 0) + 1
+    highest_count = max(counts.values())
+    return next(value for value in reversed(candidates) if counts[value] == highest_count)
+
+
+def _extract_row_odds(raw: str) -> list[tuple[float, str]]:
+    """Extract ordered American prices and nearest sportsbook labels from row text."""
+    results: list[tuple[float, str]] = []
+    book_pattern = re.compile(r"\b(DK|FD|MGM|CZR|ESPN|BR|FANATICS|HARD ROCK)\b", re.I)
+    for match in ODDS_RE.finditer(raw or ""):
+        token = match.group(1).replace("−", "-").replace("–", "-").replace(" ", "")
+        try:
+            odds = float(token)
+        except ValueError:
+            continue
+        prefix = (raw or "")[max(0, match.start() - 36):match.start()]
+        book_matches = list(book_pattern.finditer(prefix))
+        if book_matches:
+            book = book_matches[-1].group(1).upper()
+        else:
+            book = "book-unspecified"
+        results.append((odds, book))
+    return results
+
+
+def _parse_card_layout(
+    soup: BeautifulSoup,
+    target: str,
+    canonical_players: dict[str, tuple[int, str]],
+) -> list[dict[str, Any]]:
+    """Fallback for the div/grid/card layouts used by newer prop-board pages.
+
+    Rather than assuming every site uses an HTML <table>, identify the smallest
+    row-like DOM elements that contain a known player, a half-point line and
+    both signed prices. This stays conservative: it does not infer missing odds.
+    """
+    eligible: list[tuple[Any, str, float, list[tuple[float, str]]]] = []
+    for element in soup.find_all(True):
+        raw = element.get_text(" ", strip=True)
+        if not raw or len(raw) > 1000:
+            continue
+        odds = _extract_row_odds(raw)
+        if len(odds) < 2:
+            continue
+        line = _fallback_decimal_line(raw)
+        if line is None or abs(line - round(line)) < 1e-9:
+            continue
+        compact = normalize_name(raw)
+        eligible.append((element, compact, line, odds))
+
+    # Each player can appear in several nested wrappers. Keep the shortest
+    # wrapper that contains all necessary row fields to avoid importing whole
+    # sections of the page as one market.
+    best: dict[str, tuple[int, str, float, list[tuple[float, str]]]] = {}
+    for element, compact, line, odds in eligible:
+        raw_length = len(element.get_text(" ", strip=True))
+        matching = [key for key in canonical_players if key and key in compact]
+        for key in matching:
+            current = best.get(key)
+            if current is None or raw_length < current[0]:
+                best[key] = (raw_length, element.get_text(" ", strip=True), line, odds)
+
+    rows: list[dict[str, Any]] = []
+    for key, (length, raw, line, odds) in best.items():
+        found = canonical_players[key]
+        odds_over, over_book = odds[0]
+        odds_under, under_book = odds[1]
+        rows.append({
+            "player_id": found[0],
+            "player_name": found[1],
+            "target": target,
+            "line": line,
+            "odds_over": odds_over,
+            "odds_under": odds_under,
+            "bookmaker": f"Probetrics public board (over {over_book}; under {under_book})",
+        })
+    return rows
+
+
 def parse_props_html(
     html: str,
     target: str,
@@ -131,7 +220,15 @@ def parse_props_html(
                 "bookmaker": f"Probetrics public board (over {over_book}; under {under_book})",
             })
     if matched_tables == 0:
-        raise ValueError("Could not find a public prop table with Player, Line, Over and Under columns; page markup may have changed.")
+        # Newer source versions use a grid/card layout rather than a <table>.
+        card_rows = _parse_card_layout(soup, target, canonical_players)
+        if card_rows:
+            log.info("parsed %s %s rows from card/grid markup", len(card_rows), target)
+            return card_rows
+        raise ValueError(
+            "Could not parse this page as either a Player/Line/Over/Under table or a card/grid of player rows. "
+            "The source may now render its markets client-side, or its markup may have changed."
+        )
     return rows_out
 
 
@@ -167,7 +264,24 @@ def fetch_all(output: Path) -> pd.DataFrame:
             response.raise_for_status()
         except requests.RequestException as exc:
             raise RuntimeError(f"Could not download {target} public prop page: {exc}") from exc
-        rows = parse_props_html(response.text, target, players)
+        try:
+            rows = parse_props_html(response.text, target, players)
+        except ValueError as exc:
+            page = BeautifulSoup(response.text, "html.parser")
+            title = page.title.get_text(" ", strip=True) if page.title else "(no HTML title)"
+            role_rows = len(page.select('[role="row"], [role="gridcell"], [role="listitem"]'))
+            log.error(
+                "unable to parse %s page: requested_url=%s final_url=%s title=%r bytes=%s "
+                "tables=%s semantic_rows=%s: %s",
+                target, url, response.url, title, len(response.content),
+                len(page.find_all("table")), role_rows, exc,
+            )
+            raise RuntimeError(
+                f"Could not extract {target} markets from {response.url}. "
+                f"Page title: {title!r}; HTML bytes: {len(response.content)}; "
+                f"tables: {len(page.find_all('table'))}; semantic rows: {role_rows}. "
+                f"{exc}"
+            ) from exc
         log.info("parsed %s usable %s rows", len(rows), target)
         all_rows.extend(rows)
     if not all_rows:
