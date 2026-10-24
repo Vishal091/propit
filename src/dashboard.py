@@ -20,7 +20,8 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from src.operations import append_audit_event, build_health_report, read_audit_events
-from src.soccer.insights import build_best_picks, build_calibration_report, canonical_top_five_league
+from src.soccer.insights import attach_market_odds, build_best_picks, build_calibration_report, canonical_top_five_league
+from src.soccer.odds import OddsProviderError, get_api_key, read_odds_snapshots
 
 ROOT = Path(__file__).resolve().parents[1]
 DATA = ROOT / "data"
@@ -35,6 +36,7 @@ SOCCER_MATCHES = SOCCER_DATA / "matches.csv"
 SOCCER_UPCOMING = PREDICTIONS / "soccer" / "upcoming.csv"
 SOCCER_BACKTEST = PREDICTIONS / "soccer" / "backtest.csv"
 SOCCER_METRICS = PREDICTIONS / "soccer" / "backtest_metrics.json"
+SOCCER_ODDS = SOCCER_DATA / "odds_snapshots.csv"
 HTML_FILE = Path(__file__).with_name("dashboard.html")
 
 app = FastAPI(title="PropIt Local Dashboard", version="1.0.0")
@@ -73,6 +75,15 @@ class SoccerBacktestRequest(BaseModel):
     lookback_days: int = Field(default=730, ge=1, le=10000)
     total_goals_line: float = Field(default=2.5, ge=0, le=15)
     dixon_coles_rho: float = Field(default=-0.05, ge=-0.5, le=0.5)
+
+class SoccerOddsImportRequest(BaseModel):
+    mode: str = Field(default="live", pattern=r"^(live|historical)$")
+    league: str = Field(default="all", pattern=r"^(all|epl|la_liga|bundesliga|serie_a|ligue_1)$")
+    regions: str = Field(default="uk,eu", pattern=r"^(uk|eu|uk,eu|eu,uk)$")
+    markets: str = Field(default="h2h,totals", pattern=r"^(h2h|totals|h2h,totals|totals,h2h)$")
+    historical_date: str | None = Field(default=None, max_length=40)
+    confirm_historical_cost: bool = False
+
 
 
 def _validate_game_date(value: str) -> str:
@@ -261,6 +272,30 @@ def _soccer_competitions(matches: pd.DataFrame) -> list[dict[str, Any]]:
     ))
 
 
+def _soccer_odds_state() -> dict[str, Any]:
+    frame = _read_csv(SOCCER_ODDS)
+    snapshots = pd.to_datetime(frame.get("snapshot_at_utc", pd.Series(dtype="object")), errors="coerce", utc=True)
+    quote_times = pd.to_datetime(frame.get("market_last_update_utc", pd.Series(dtype="object")), errors="coerce", utc=True)
+    try:
+        get_api_key()
+        key_configured = True
+    except OddsProviderError:
+        key_configured = False
+    mode = frame.get("snapshot_mode", pd.Series(dtype="object")).fillna("").astype(str)
+    return {
+        "available": not frame.empty,
+        "rows": int(len(frame)),
+        "live_rows": int(mode.eq("live").sum()),
+        "historical_rows": int(mode.eq("historical").sum()),
+        "snapshot_updated": _file_stamp(SOCCER_ODDS),
+        "latest_snapshot_at_utc": snapshots.max().isoformat().replace("+00:00", "Z") if not snapshots.empty and snapshots.notna().any() else None,
+        "latest_quote_at_utc": quote_times.max().isoformat().replace("+00:00", "Z") if not quote_times.empty and quote_times.notna().any() else None,
+        "api_key_configured": key_configured,
+        "source": "The Odds API",
+        "path": str(SOCCER_ODDS.relative_to(ROOT)),
+    }
+
+
 def _soccer_state() -> dict[str, Any]:
     matches = _read_csv(SOCCER_MATCHES)
     upcoming = _read_csv(SOCCER_UPCOMING)
@@ -407,13 +442,21 @@ def api_soccer_picks(
         _records(frame), min_history_matches=min_history_matches,
         min_probability=min_probability, limit=limit,
     )
+    odds_frame = _read_csv(SOCCER_ODDS)
+    picks = attach_market_odds(picks, _records(odds_frame))
+    matched_odds = sum(bool(pick.get("odds_available")) for pick in picks)
     return {
         "available": bool(picks), "count": len(picks), "rows": picks,
+        "odds_snapshot_rows": int(len(odds_frame)), "picks_with_fresh_odds": matched_odds,
         "eligible_leagues": ["Premier League", "La Liga", "Bundesliga", "Serie A", "Ligue 1"],
         "min_history_matches": min_history_matches, "min_probability": min_probability,
         "method": "One strongest independent-Poisson market per fixture; ranked with a historical-sample support adjustment.",
         "message": "No pick met the top-five-league, sample-history, and probability filters." if not picks else "",
-        "warning": "No sportsbook odds, lineups, or injury information are included. This is a model-confidence ranking, not an odds-based value/EV recommendation.",
+        "warning": (
+            "Matched prices are experimental comparisons against same-book no-vig probabilities; the model has not been calibrated into a validated betting strategy. Check current market availability and jurisdiction."
+            if matched_odds else
+            "No fresh, exact-team pre-kickoff odds matched these picks. Set THE_ODDS_API_KEY, import odds, and verify that team names/markets match. Probabilities alone are not a market edge or EV recommendation."
+        ),
     }
 
 
@@ -441,6 +484,44 @@ def api_soccer_calibration(
     elif backtest.empty:
         report["message"] = "Run the chronological soccer backtest to generate out-of-sample predictions."
     return report
+
+
+@app.get("/api/soccer/odds/status")
+def api_soccer_odds_status() -> dict[str, Any]:
+    """Describe saved odds coverage and API key configuration without revealing the key."""
+    return _soccer_odds_state()
+
+
+@app.post("/api/soccer/odds/import")
+def api_soccer_odds_import(request: SoccerOddsImportRequest) -> dict[str, Any]:
+    """Explicitly import current odds or a user-confirmed historical snapshot."""
+    args = ["--league", request.league, "--output", "data/soccer/odds_snapshots.csv"]
+    if request.mode == "historical":
+        if not request.historical_date:
+            return {"ok": False, "steps": [], "message": "Historical mode requires a timezone-aware ISO-8601 snapshot date."}
+        if not request.confirm_historical_cost:
+            return {"ok": False, "steps": [], "message": "Confirm the historical API credit cost before importing a paid snapshot."}
+        try:
+            requested = datetime.fromisoformat(request.historical_date.strip().replace("Z", "+00:00"))
+            if requested.tzinfo is None:
+                raise ValueError("Historical timestamp must include a timezone, preferably Z (UTC).")
+            requested = requested.astimezone(timezone.utc)
+            if requested > datetime.now(timezone.utc):
+                raise ValueError("Historical snapshot timestamp cannot be in the future.")
+        except ValueError as exc:
+            return {"ok": False, "steps": [], "message": str(exc)}
+        args.extend(["--regions", "uk", "--markets", "h2h", "--historical-date",
+                     requested.isoformat(timespec="seconds").replace("+00:00", "Z")])
+    else:
+        args.extend(["--regions", request.regions, "--markets", request.markets])
+    result = _run_steps([("scripts.import_soccer_odds", args)])
+    result["odds_state"] = _soccer_odds_state()
+    if request.mode == "historical":
+        result["historical_cost_note"] = (
+            "Estimate: 10 credits per market per region per league. This import requested "
+            f"{1 if request.league != 'all' else 5} league(s), one UK region and one 1X2 market."
+        )
+    return result
 
 
 @app.get("/api/soccer/metrics")
