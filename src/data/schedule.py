@@ -1,7 +1,7 @@
 """Public NBA schedule helpers for player-team and next-game metadata.
 
-Uses the NBA CDN schedule JSON (no API key). Missing or unreachable schedule data
-must not break projections; callers can show an unavailable match date instead.
+Uses ESPN daily scoreboards first and the NBA CDN as a backup, with local caching.
+If all public feeds fail, callers can continue projections with blank match metadata.
 """
 from __future__ import annotations
 
@@ -397,7 +397,7 @@ def get_next_game_map(
                 len(cached_map),
             )
 
-    if not cache_fresh or force_refresh or not partial_espn_map:
+    if not cache_fresh or force_refresh or len(partial_espn_map) < 20:
         try:
             fresh_payloads, successful_days = _fetch_espn_scoreboards(as_of)
             fresh_map = build_espn_next_game_map(fresh_payloads, as_of=as_of)
