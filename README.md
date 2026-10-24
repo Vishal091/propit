@@ -129,7 +129,7 @@ Targets are PTS, REB, or AST. Enter actual lines and American odds from a market
 
     .\.venv\Scripts\python.exe -m pytest -q
 
-The tests cover player-isolated rolling features, odds arithmetic, season selection, parser behavior, same-date chronological holdout boundaries, pregame snapshot archival, outcome settlement, and dashboard date/data handling.
+The tests cover player-isolated rolling features, minutes/usage feature timing, schedule-based next-game rows, stale model-artifact rejection, odds arithmetic, season selection, parser behavior, same-date chronological holdout boundaries, pregame snapshot archival, outcome settlement, and dashboard date/data handling.
 
 ## Important limitations
 
