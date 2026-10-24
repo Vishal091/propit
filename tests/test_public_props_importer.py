@@ -98,7 +98,7 @@ def test_parse_flash_odds_public_html_table_with_bare_odds():
     assert by_name["Aaron Wiggins"]["line"] == 9.5
     assert by_name["Aaron Wiggins"]["odds_over"] == 165
     assert by_name["Aaron Wiggins"]["odds_under"] == -204
-    assert by_name["Aaron Wiggins"]["bookmaker"] == "Probetrics public board (over Underdog; under Underdog)"
+    assert by_name["Aaron Wiggins"]["bookmaker"] == "Flash Odds public board (over Underdog; under Underdog)"
     assert by_name["Alex Sarr"]["line"] == 14.5
     assert by_name["Alex Sarr"]["odds_over"] == 104
 
