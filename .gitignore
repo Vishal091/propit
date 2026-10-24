@@ -10,3 +10,4 @@ data/prop_lines.csv
 data/prop_lines_public.csv
 .env
 *.log
+data/prediction_history.csv
