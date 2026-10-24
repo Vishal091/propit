@@ -343,7 +343,7 @@ input[type=date],select{border:1px solid var(--line);border-radius:9px;backgroun
       renderSlate(lastSlate);
       if(slateView==="shortlist")renderOverview(lastSlate);
       return data;
-    }catch(err){$("slate-table").innerHTML=emptyRow(12,"Could not load slate",err.message);}
+    }catch(err){$("slate-table").innerHTML=emptyRow(14,"Could not load slate",err.message);}
   }
   function renderSlate(rows){
     if(!rows.length){$("slate-table").innerHTML=emptyRow(14,slateView==="shortlist"?"No qualifying candidates":"No scored markets","Run Refresh Slate after confirming the model artifacts are available.");return;}
@@ -363,7 +363,7 @@ input[type=date],select{border:1px solid var(--line);border-radius:9px;backgroun
       $("history-badge").textContent=data.count?Number(data.count).toLocaleString()+" ROWS":"NO HISTORY";
       $("history-badge").className="status-pill "+(data.count?"good":"warn");
       renderHistory(lastHistory);
-    }catch(err){$("history-table").innerHTML=emptyRow(10,"Could not load history",err.message);}
+    }catch(err){$("history-table").innerHTML=emptyRow(11,"Could not load history",err.message);}
   }
   function renderHistory(rows){
     if(!rows.length){$("history-table").innerHTML=emptyRow(11,"No records in this view","Run the pregame workflow before a game to start the ledger.");return;}
