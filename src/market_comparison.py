@@ -260,6 +260,82 @@ def compare_market_rows(frame: pd.DataFrame, *, now_utc: Any = None) -> pd.DataF
     return result
 
 
+
+def consolidate_same_line_markets(frame: pd.DataFrame) -> pd.DataFrame:
+    """Collapse duplicate player/stat/line rows to one row using best observed side prices."""
+    if frame.empty:
+        return frame.copy()
+    result = frame.copy()
+    over_col, under_col = _price_columns(result)
+    grouped: dict[tuple[str, str, float], list[int]] = {}
+    for index, row in enumerate(result.to_dict(orient="records")):
+        player_key = _player_key(row)
+        target = str(row.get("target") or "").strip().upper()
+        line = _numeric(row.get("line"))
+        if player_key and target and line is not None:
+            grouped.setdefault((player_key, target, round(line, 4)), []).append(index)
+        else:
+            grouped.setdefault((f"row:{index}", target, line or float(index)), []).append(index)
+
+    combined_rows: list[dict[str, Any]] = []
+    records = result.to_dict(orient="records")
+    for (_, _, _), positions in grouped.items():
+        row = dict(records[positions[0]])
+        market_rows = [records[position] for position in positions]
+        best_over_decimal = None
+        best_under_decimal = None
+        best_over = (None, "")
+        best_under = (None, "")
+        for item in market_rows:
+            over = _numeric(item.get(over_col))
+            under = _numeric(item.get(under_col))
+            over_decimal = american_to_decimal(over)
+            under_decimal = american_to_decimal(under)
+            if over_decimal is not None and (best_over_decimal is None or over_decimal > best_over_decimal):
+                best_over_decimal = over_decimal
+                best_over = (over, _effective_book(item, "over"))
+            if under_decimal is not None and (best_under_decimal is None or under_decimal > best_under_decimal):
+                best_under_decimal = under_decimal
+                best_under = (under, _effective_book(item, "under"))
+
+        if best_over[0] is not None:
+            row[over_col] = best_over[0]
+            row["best_over_odds_american"] = best_over[0]
+            row["best_over_bookmaker"] = best_over[1]
+            if best_over[1]:
+                row["bookmaker_over"] = best_over[1]
+        if best_under[0] is not None:
+            row[under_col] = best_under[0]
+            row["best_under_odds_american"] = best_under[0]
+            row["best_under_bookmaker"] = best_under[1]
+            if best_under[1]:
+                row["bookmaker_under"] = best_under[1]
+
+        row["market_quoted_rows_count"] = len(market_rows)
+        if len(market_rows) > 1:
+            row["bookmaker"] = (
+                f"Best available across {int(row.get('market_books_available') or len(_unique_books(market_rows)))} books"
+            )
+        if pd.notna(row.get("market_no_vig_p_over_consensus")) and pd.notna(row.get("market_no_vig_p_under_consensus")):
+            row["market_no_vig_p_over"] = float(row["market_no_vig_p_over_consensus"])
+            row["market_no_vig_p_under"] = float(row["market_no_vig_p_under_consensus"])
+            row["market_no_vig_method"] = "same_book_market_consensus"
+        else:
+            p_over, p_under, method = no_vig_probabilities(
+                row.get(over_col),
+                row.get(under_col),
+                bookmaker_over=row.get("bookmaker_over"),
+                bookmaker_under=row.get("bookmaker_under"),
+                bookmaker=row.get("bookmaker") if len(market_rows) == 1 else None,
+            )
+            row["market_no_vig_p_over"] = p_over
+            row["market_no_vig_p_under"] = p_under
+            row["market_no_vig_method"] = method
+        combined_rows.append(row)
+
+    return pd.DataFrame(combined_rows).reset_index(drop=True)
+
+
 def record_market_snapshot(
     current: pd.DataFrame,
     history_path: Path = DEFAULT_MARKET_HISTORY,
