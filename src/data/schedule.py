@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any
@@ -34,6 +35,199 @@ HEADERS = {
     "Origin": "https://www.nba.com",
     "Referer": "https://www.nba.com/",
 }
+
+
+
+# ESPN's public scoreboard is the primary fallback when the NBA CDN is blocked
+# by a network, region, or upstream change. Query individual days; range queries
+# have not been reliable. Only a short rolling window is needed to find each
+# team's next game.
+ESPN_SCOREBOARD_URL = "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard"
+ESPN_CACHE_PATH = Path(".cache/nba/espn_scoreboards.json")
+ESPN_CACHE_TTL_SECONDS = 6 * 60 * 60
+ESPN_LOOKAHEAD_DAYS = 21
+ESPN_HEADERS = {
+    "User-Agent": HEADERS["User-Agent"],
+    "Accept": "application/json, text/plain, */*",
+}
+ESPN_ABBREVIATION_ALIASES = {
+    "GS": "GSW",
+    "NO": "NOP",
+    "NY": "NYK",
+    "SA": "SAS",
+    "WSH": "WAS",
+    "BRK": "BKN",
+}
+
+
+def _espn_abbreviation(team: dict[str, Any]) -> str:
+    raw = str(team.get("abbreviation") or team.get("teamTricode") or "").strip().upper()
+    return ESPN_ABBREVIATION_ALIASES.get(raw, raw)
+
+
+def _espn_team_name(team: dict[str, Any]) -> str:
+    display = str(team.get("displayName") or "").strip()
+    if display:
+        return display
+    city = str(team.get("location") or team.get("teamCity") or "").strip()
+    name = str(team.get("name") or team.get("teamName") or "").strip()
+    return " ".join(part for part in (city, name) if part) or _espn_abbreviation(team)
+
+
+def _espn_event_day(value: Any) -> date | None:
+    """Convert ESPN's UTC start timestamp to the NBA-local calendar date."""
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=ZoneInfo("UTC"))
+        return parsed.astimezone(ZoneInfo("America/New_York")).date()
+    except (ValueError, ZoneInfoNotFoundError, OSError):
+        return _as_date(raw)
+
+
+def build_espn_next_game_map(
+    payloads: list[dict[str, Any]],
+    as_of: date | None = None,
+) -> dict[str, dict[str, str]]:
+    """Normalize a set of ESPN daily scoreboard payloads to the same team map."""
+    as_of = as_of or _current_nba_date()
+    candidates: dict[str, list[dict[str, str]]] = {}
+
+    for payload in payloads:
+        events = payload.get("events", []) if isinstance(payload, dict) else []
+        if not isinstance(events, list):
+            continue
+        for event in events:
+            if not isinstance(event, dict):
+                continue
+            game_day = _espn_event_day(event.get("date"))
+            if game_day is None or game_day < as_of:
+                continue
+
+            status = event.get("status") or {}
+            status_type = status.get("type") or {}
+            state = str(status_type.get("state") or "").strip().casefold()
+            completed = status_type.get("completed") is True or str(
+                status_type.get("completed") or ""
+            ).strip().casefold() == "true"
+            if completed or state in {"in", "post"}:
+                continue
+
+            competitions = event.get("competitions") or []
+            competition = competitions[0] if competitions and isinstance(competitions[0], dict) else {}
+            competitors = competition.get("competitors") or []
+            if not isinstance(competitors, list):
+                continue
+            home = next(
+                (item.get("team", {}) for item in competitors
+                 if isinstance(item, dict) and str(item.get("homeAway", "")).casefold() == "home"),
+                {},
+            )
+            away = next(
+                (item.get("team", {}) for item in competitors
+                 if isinstance(item, dict) and str(item.get("homeAway", "")).casefold() == "away"),
+                {},
+            )
+            if not isinstance(home, dict) or not isinstance(away, dict):
+                continue
+
+            home_abbr = _espn_abbreviation(home)
+            away_abbr = _espn_abbreviation(away)
+            if not home_abbr or not away_abbr:
+                continue
+            home_name = _espn_team_name(home)
+            away_name = _espn_team_name(away)
+            day = game_day.isoformat()
+
+            candidates.setdefault(home_abbr, []).append({
+                "team": home_name,
+                "team_abbreviation": home_abbr,
+                "match_date": day,
+                "opponent_team": away_name,
+                "opponent_abbreviation": away_abbr,
+                "matchup": f"{home_abbr} vs {away_abbr}",
+                "home_away": "HOME",
+            })
+            candidates.setdefault(away_abbr, []).append({
+                "team": away_name,
+                "team_abbreviation": away_abbr,
+                "match_date": day,
+                "opponent_team": home_name,
+                "opponent_abbreviation": home_abbr,
+                "matchup": f"{away_abbr} @ {home_abbr}",
+                "home_away": "AWAY",
+            })
+
+    result: dict[str, dict[str, str]] = {}
+    for team, games in candidates.items():
+        games.sort(key=lambda game: (game["match_date"], game["matchup"]))
+        result[team] = games[0]
+    return result
+
+
+def _read_espn_cache() -> list[dict[str, Any]] | None:
+    try:
+        if ESPN_CACHE_PATH.exists():
+            with ESPN_CACHE_PATH.open("r", encoding="utf-8") as handle:
+                payload = json.load(handle)
+            rows = payload.get("payloads") if isinstance(payload, dict) else None
+            if isinstance(rows, list) and all(isinstance(row, dict) for row in rows):
+                return rows
+    except (OSError, json.JSONDecodeError) as exc:
+        log.warning("could not read ESPN scoreboard cache: %s", exc)
+    return None
+
+
+def _fetch_espn_scoreboards(as_of: date) -> tuple[list[dict[str, Any]], int]:
+    """Fetch individual daily scoreboards concurrently and return valid payloads."""
+    days = [as_of.fromordinal(as_of.toordinal() + offset) for offset in range(ESPN_LOOKAHEAD_DAYS)]
+    payloads_by_day: dict[date, dict[str, Any]] = {}
+    errors: list[str] = []
+
+    def fetch_day(day: date) -> tuple[date, dict[str, Any]]:
+        response = requests.get(
+            ESPN_SCOREBOARD_URL,
+            params={"dates": day.strftime("%Y%m%d"), "limit": "500"},
+            headers=ESPN_HEADERS,
+            timeout=12,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        if not isinstance(payload, dict) or not isinstance(payload.get("events"), list):
+            raise ValueError("ESPN response does not contain an events array")
+        return day, payload
+
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        futures = {executor.submit(fetch_day, day): day for day in days}
+        for future in as_completed(futures):
+            day = futures[future]
+            try:
+                returned_day, payload = future.result()
+                payloads_by_day[returned_day] = payload
+            except Exception as exc:
+                errors.append(f"{day.isoformat()}: {exc}")
+
+    payloads = [payloads_by_day[day] for day in days if day in payloads_by_day]
+    log.info(
+        "ESPN NBA scoreboard responses: %s/%s days successful",
+        len(payloads), len(days),
+    )
+    if not payloads:
+        summary = "; ".join(errors[:3]) or "no valid scoreboard responses"
+        raise RuntimeError(f"ESPN scoreboard unavailable: {summary}")
+    if errors:
+        log.warning("some ESPN schedule dates failed: %s", "; ".join(errors[:3]))
+    return payloads, len(payloads)
+
+
+def _write_espn_cache(payloads: list[dict[str, Any]]) -> None:
+    ESPN_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    temp_path = ESPN_CACHE_PATH.with_suffix(".tmp")
+    temp_path.write_text(json.dumps({"payloads": payloads}), encoding="utf-8")
+    temp_path.replace(ESPN_CACHE_PATH)
 
 
 def _current_nba_date() -> date:
@@ -181,24 +375,65 @@ def get_next_game_map(
     *,
     force_refresh: bool = False,
 ) -> dict[str, dict[str, str]]:
-    """Fetch/cache the NBA CDN schedule and return the next matchup for each team."""
+    """Get next matchups using ESPN's scoreboard, then the NBA CDN as backup."""
+    as_of = as_of or _current_nba_date()
+    partial_espn_map: dict[str, dict[str, str]] = {}
+    espn_payloads: list[dict[str, Any]] | None = None
+    cache_fresh = (
+        not force_refresh
+        and ESPN_CACHE_PATH.exists()
+        and (datetime.now().timestamp() - ESPN_CACHE_PATH.stat().st_mtime) < ESPN_CACHE_TTL_SECONDS
+    )
+    if cache_fresh:
+        espn_payloads = _read_espn_cache()
+        if espn_payloads is not None:
+            cached_map = build_espn_next_game_map(espn_payloads, as_of=as_of)
+            if len(cached_map) >= 20:
+                log.info("loaded next scheduled games for %s NBA teams from ESPN cache", len(cached_map))
+                return cached_map
+            partial_espn_map = cached_map
+            log.warning(
+                "fresh ESPN cache only maps %s teams; trying a fresh schedule lookup",
+                len(cached_map),
+            )
+
+    if not cache_fresh or force_refresh or not partial_espn_map:
+        try:
+            fresh_payloads, successful_days = _fetch_espn_scoreboards(as_of)
+            fresh_map = build_espn_next_game_map(fresh_payloads, as_of=as_of)
+            if len(fresh_map) >= 20:
+                if successful_days >= 18:
+                    _write_espn_cache(fresh_payloads)
+                log.info("loaded next scheduled games for %s NBA teams from ESPN", len(fresh_map))
+                return fresh_map
+            if len(fresh_map) > len(partial_espn_map):
+                partial_espn_map = fresh_map
+            log.warning(
+                "ESPN scoreboard only mapped %s NBA teams across the next %s days",
+                len(fresh_map), ESPN_LOOKAHEAD_DAYS,
+            )
+            if successful_days >= 18 and fresh_map:
+                _write_espn_cache(fresh_payloads)
+        except Exception as exc:
+            log.warning("could not load ESPN NBA schedule fallback: %s", exc)
+
     stale_payload = _read_cached_schedule()
     if stale_payload is not None and not _matches_current_season(stale_payload):
         log.info("cached NBA schedule is for a previous season; refreshing it")
         stale_payload = None
-    cache_fresh = (
+    nba_cache_fresh = (
         not force_refresh
         and stale_payload is not None
         and CACHE_PATH.exists()
         and (datetime.now().timestamp() - CACHE_PATH.stat().st_mtime) < CACHE_TTL_SECONDS
     )
-    payload = stale_payload if cache_fresh else None
+    payload = stale_payload if nba_cache_fresh else None
     last_error: Exception | None = None
 
     if payload is None:
         for url in SCHEDULE_URLS:
             try:
-                response = requests.get(url, headers=HEADERS, timeout=25)
+                response = requests.get(url, headers=HEADERS, timeout=12)
                 response.raise_for_status()
                 fresh = response.json()
                 if (
@@ -223,10 +458,34 @@ def get_next_game_map(
                 last_error = exc
                 log.warning("could not use NBA schedule endpoint %s: %s", url, exc)
 
-        if payload is None:
-            if stale_payload is None:
-                raise RuntimeError(f"Could not retrieve the current public NBA schedule: {last_error}")
-            log.warning("could not refresh public NBA schedule; using stale cache: %s", last_error)
-            payload = stale_payload
+    if payload is not None:
+        nba_map = build_next_game_map(payload, as_of=as_of)
+        if nba_map:
+            combined = dict(partial_espn_map)
+            combined.update(nba_map)
+            log.info("loaded next scheduled games for %s NBA teams from NBA CDN", len(nba_map))
+            return combined
 
-    return build_next_game_map(payload, as_of=as_of)
+    if partial_espn_map:
+        log.warning(
+            "using partial ESPN matchup map for %s teams; some teams may not have upcoming schedule rows",
+            len(partial_espn_map),
+        )
+        return partial_espn_map
+
+    if payload is None:
+        if stale_payload is not None:
+            log.warning("could not refresh NBA schedule; reusing cached schedule: %s", last_error)
+            stale_payload = _read_cached_schedule()
+            if stale_payload is not None:
+                fallback = build_next_game_map(stale_payload, as_of=as_of)
+                if fallback:
+                    return fallback
+        raise RuntimeError(
+            "No upcoming NBA schedule could be loaded from ESPN or the NBA CDN. "
+            f"Last NBA CDN error: {last_error}"
+        )
+
+    log.warning("schedule feeds returned no upcoming NBA matchups on or after %s", as_of.isoformat())
+    return {}
+
