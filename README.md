@@ -41,7 +41,7 @@ A best-effort HTML importer tries to read Points, Rebounds, and Assists pages fr
 
     .\.venv\Scripts\python.exe -m scripts.fetch_public_props
 
-This writes data/prop_lines_public.csv. Then score available markets and print up to ten candidates:
+This writes data/prop_lines_public.csv. The importer first tries ordinary HTML, then falls back to headless Chrome for the JavaScript-rendered board. The importer may need to render the public board if its HTML is only a JavaScript app shell. Google Chrome must be installed; Selenium Manager attempts to obtain a matching driver automatically. Then score available markets and print up to ten candidates:
 
     .\.venv\Scripts\python.exe -m src.predict_slate --lines data\prop_lines_public.csv --top 10
 
