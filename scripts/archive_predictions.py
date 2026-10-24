@@ -48,10 +48,13 @@ def prepare_archive_rows(predictions: pd.DataFrame, game_date: str, snapshot_at_
     if "match_date" in predictions:
         match_dates = pd.to_datetime(predictions["match_date"], errors="coerce")
         out["match_date"] = match_dates.dt.strftime("%Y-%m-%d").fillna("")
+        # Do not substitute snapshot date when the schedule could not map a player.
+        out["game_date"] = out["match_date"]
     else:
+        # Legacy prediction files did not have a match_date field; preserve their
+        # prior behavior as a compatibility fallback.
         out["match_date"] = ""
-    # game_date is the actual event date when known; snapshot_date records when this slate was saved.
-    out["game_date"] = out["match_date"].where(out["match_date"].astype(str).str.len().gt(0), game_day)
+        out["game_date"] = game_day
     out["target"] = predictions["target"].astype(str).str.upper().str.strip()
     out["line"] = pd.to_numeric(predictions["line"], errors="coerce")
     out["p_over"] = pd.to_numeric(predictions[probability_col], errors="coerce")
