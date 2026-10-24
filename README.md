@@ -228,3 +228,26 @@ Data source documentation:
 - StatsBomb format and attribution: https://github.com/statsbomb/open-data
 - OpenFootball public-domain data: https://github.com/openfootball/england
 - Phase plan: [docs/SOCCER_ROADMAP.md](docs/SOCCER_ROADMAP.md)
+## Soccer goal model and chronological backtest
+
+The soccer model uses historical goals to estimate competition-level home/away scoring rates,
+venue-specific team attack and defensive weakness, shrinkage towards a weak prior, and time decay.
+It forecasts expected home/away goals, home/draw/away win probabilities and totals over/under.
+Training samples must be completed matches in the same competition; predictions strictly exclude
+same-day and future results. A configurable lookback prevents old matches from dominating.
+
+Run a strict-date rolling-origin backtest:
+
+    python -m scripts.backtest_soccer --input data/soccer/matches.csv --min-history 30
+
+Outputs:
+
+- predictions/soccer/backtest.csv: per-match predictions, expected goals, actual results, training counts, and both model probabilities.
+- predictions/soccer/backtest_metrics.json: 1X2 log loss, multiclass Brier score, accuracy, goal-rate MAE, and totals metrics.
+
+The comparison includes an independent-Poisson baseline and an experimental Dixon-Coles low-score
+correction. The default rho is a supplied exploratory value, not fitted from data or assumed optimal.
+Use the same chronological holdout to compare models; lower log loss and Brier score are better.
+Integer total-goals lines treat exact-line results as pushes and exclude them from binary totals metrics.
+The output is only as representative as the imported league/season coverage. Sparse or selected
+historical feeds are not evidence of out-of-sample edge, and current odds are not imported by this tool.

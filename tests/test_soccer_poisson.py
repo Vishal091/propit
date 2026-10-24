@@ -45,3 +45,31 @@ def test_rejects_bad_inputs():
     with pytest.raises(ValueError): predict_match(-0.1, 1)
     with pytest.raises(ValueError): predict_match(1, 1, total_goals_line=-0.5)
     with pytest.raises(ValueError): predict_match(1, 1, max_goals=3)
+
+def test_dixon_coles_rho_zero_matches_independent_poisson():
+    assert predict_match(1.5, 1.1, rho=0) == predict_match(1.5, 1.1)
+
+def test_dixon_coles_outputs_valid_probabilities_and_changes_low_score_mass():
+    base = predict_match(1.5, 1.1, rho=0)
+    adjusted = predict_match(1.5, 1.1, rho=-0.05)
+    assert adjusted.home_win + adjusted.draw + adjusted.away_win == pytest.approx(1)
+    assert adjusted.over + adjusted.under == pytest.approx(1)
+    assert adjusted.push == 0
+    assert any(
+        not math.isclose(a, b)
+        for a, b in zip((base.home_win, base.draw, base.away_win),
+                        (adjusted.home_win, adjusted.draw, adjusted.away_win))
+    )
+
+def test_dixon_coles_reports_push_for_integer_line():
+    result = predict_match(1.3, 1.1, total_goals_line=2, rho=-0.05)
+    assert result.over + result.under + result.push == pytest.approx(1)
+
+@pytest.mark.parametrize("rho", [float("nan"), float("inf"), -0.6, 0.6])
+def test_dixon_coles_rejects_invalid_rho(rho):
+    with pytest.raises(ValueError):
+        predict_match(1, 1, rho=rho)
+
+def test_dixon_coles_rejects_negative_low_score_adjustment():
+    with pytest.raises(ValueError):
+        predict_match(5, 5, rho=0.5)
