@@ -242,7 +242,7 @@ def api_refresh() -> dict[str, Any]:
 
 @app.post("/api/pregame-workflow")
 def api_pregame_workflow(request: GameDateRequest) -> dict[str, Any]:
-    """Refresh lines, predict, and archive a slate for the selected game date."""
+    """Refresh lines, predict, and archive one snapshot for the selected snapshot date."""
     try:
         game_date = _validate_game_date(request.game_date)
     except ValueError as exc:
@@ -259,7 +259,7 @@ def api_pregame_workflow(request: GameDateRequest) -> dict[str, Any]:
     ]
     result = _run_steps(plan)
     if result["ok"]:
-        result["message"] = f"Slate refreshed and pregame snapshot archived for {game_date}. Confirm this was before tip-off."
+        result["message"] = f"Slate refreshed and pregame snapshot archived for snapshot date {game_date}. Confirm this was before tip-off."
     return result
 
 
