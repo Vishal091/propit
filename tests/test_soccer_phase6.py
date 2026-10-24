@@ -96,7 +96,7 @@ def test_dashboard_exposes_market_import_controls_and_segmented_backtest_view():
         'id="soccer-segment-metrics-table"',
         'async function loadSoccerOddsStatus',
         'async function runSoccerOddsImport',
-        'market no-vig P',
-        'Expected value per unit',
+        'Market no-vig P',
+        'EV / unit',
     ):
         assert value in html
