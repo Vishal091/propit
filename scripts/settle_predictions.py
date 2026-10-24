@@ -22,12 +22,18 @@ def settle_history_rows(history: pd.DataFrame, games: pd.DataFrame, game_date: s
     """Settle matching predictions; preserve pending rows and pushes transparently."""
     game_day = date.fromisoformat(game_date).isoformat()
     out = history.copy()
-    for column in ("actual_stat", "actual_over"):
+    for column in ("actual_stat", "actual_over", "match_date"):
         if column not in out.columns:
             out[column] = pd.NA
     if "settlement_status" not in out.columns:
         out["settlement_status"] = "PENDING"
     out["game_date"] = pd.to_datetime(out["game_date"], errors="coerce").dt.date.astype("string")
+    out["match_date"] = pd.to_datetime(out["match_date"], errors="coerce").dt.date.astype("string")
+    # Prefer each prop's actual scheduled match date. Legacy records fall back to game_date.
+    effective_game_date = out["match_date"].where(
+        out["match_date"].notna() & out["match_date"].astype(str).ne("NaT"),
+        out["game_date"],
+    )
     out["player_id"] = pd.to_numeric(out["player_id"], errors="coerce")
     out["line"] = pd.to_numeric(out["line"], errors="coerce")
     out["actual_stat"] = pd.to_numeric(out["actual_stat"], errors="coerce")
@@ -49,7 +55,7 @@ def settle_history_rows(history: pd.DataFrame, games: pd.DataFrame, game_date: s
             if pd.notna(value):
                 lookup[(player_id, target)] = float(value)
 
-    date_mask = out["game_date"].eq(game_day)
+    date_mask = effective_game_date.eq(game_day)
     pending_mask = out["actual_stat"].isna() & date_mask
     settled_count = push_count = 0
     for index in out.index[pending_mask]:
@@ -71,6 +77,7 @@ def settle_history_rows(history: pd.DataFrame, games: pd.DataFrame, game_date: s
             out.at[index, "settlement_status"] = "SETTLED"
             settled_count += 1
     out["game_date"] = out["game_date"].astype(str)
+    out["match_date"] = out["match_date"].astype(str)
     return out, settled_count, push_count
 
 
@@ -105,9 +112,13 @@ def main() -> None:
     except ValueError as exc:
         raise SystemExit(str(exc)) from exc
     updated.to_csv(args.history, index=False)
+    effective_date = updated["match_date"].where(
+        updated["match_date"].notna() & updated["match_date"].astype(str).ne("NaT"),
+        updated["game_date"],
+    ).astype(str)
     pending = int(
-        updated["game_date"].astype(str).eq(game_day.isoformat()).sum()
-        - updated.loc[updated["game_date"].astype(str).eq(game_day.isoformat()), "actual_stat"].notna().sum()
+        effective_date.eq(game_day.isoformat()).sum()
+        - updated.loc[effective_date.eq(game_day.isoformat()), "actual_stat"].notna().sum()
     )
     print(f"Updated {args.history} for {game_day.isoformat()}: settled={settled_count}, pushes={push_count}, still_pending={pending}.")
     print("Players without a matching appearance in the public game log remain pending; verify DNP/postponement cases manually.")
