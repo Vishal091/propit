@@ -16,7 +16,7 @@ import pandas as pd
 from src.data.nba_client import get_active_players, get_league_game_log
 from src.data.seasons import current_season, recent_seasons
 from src.data.schedule import get_next_game_map
-from src.features.build import build_player_features
+from src.features.build import build_player_features, build_team_game_metrics
 from src.model.predict import Prediction, predict_one
 from src.model.train import TrainedModel
 
@@ -120,6 +120,9 @@ def _player_team_metadata(games: pd.DataFrame) -> dict[int, dict[str, str]]:
                 )
                 if team or abbreviation:
                     metadata[player_id] = {"team": team, "team_abbreviation": abbreviation}
+                    team_id = _number_or_none(row.get("TEAM_ID"))
+                    if team_id is not None:
+                        metadata[player_id]["team_id"] = int(team_id)
     except Exception as exc:
         log.warning("could not load current roster team metadata: %s", exc)
 
@@ -142,15 +145,19 @@ def _player_team_metadata(games: pd.DataFrame) -> dict[int, dict[str, str]]:
         )
         if team or abbreviation:
             metadata[pid] = {"team": team, "team_abbreviation": abbreviation}
+            team_id = _number_or_none(latest.get("TEAM_ID"))
+            if team_id is not None:
+                metadata[pid]["team_id"] = int(team_id)
     return metadata
 
 
 def _next_match_for_player(
     player_id: int,
-    player_teams: dict[int, dict[str, str]],
+    player_teams: dict[int, dict[str, Any]],
     next_games: dict[str, dict[str, str]],
     line_row: dict[str, Any] | None = None,
-) -> dict[str, str]:
+    team_id_by_abbreviation: dict[str, int] | None = None,
+) -> dict[str, Any]:
     """Join a player's current team to that team's next scheduled NBA game."""
     line_row = line_row or {}
     team_meta = player_teams.get(player_id, {})
@@ -171,13 +178,22 @@ def _next_match_for_player(
     opponent_abbreviation = row_text("opponent_abbreviation") or scheduled.get("opponent_abbreviation", "")
     matchup = row_text("matchup") or scheduled.get("matchup", "")
     if not matchup and team_abbreviation and opponent_abbreviation:
-        matchup = f"{team_abbreviation} vs {opponent_abbreviation}"
+        matchup = (
+            f"{team_abbreviation} vs {opponent_abbreviation}"
+            if str(scheduled.get("home_away", "")).upper() == "HOME"
+            else f"{team_abbreviation} @ {opponent_abbreviation}"
+        )
+    team_id_by_abbreviation = team_id_by_abbreviation or {}
+    team_id_value = team_meta.get("team_id") or team_id_by_abbreviation.get(team_abbreviation)
+    opponent_team_id = team_id_by_abbreviation.get(opponent_abbreviation)
     return {
         "team": team_name,
         "team_abbreviation": team_abbreviation,
+        "team_id": int(team_id_value) if team_id_value is not None else None,
         "match_date": match_date,
         "opponent_team": opponent,
         "opponent_abbreviation": opponent_abbreviation,
+        "opponent_team_id": int(opponent_team_id) if opponent_team_id is not None else None,
         "matchup": matchup,
         "home_away": scheduled.get("home_away", ""),
     }
@@ -216,26 +232,122 @@ def _number_or_none(value: Any) -> float | None:
         return None
 
 
-def _build_latest_features(games: pd.DataFrame, active_players: dict[int, str]) -> dict[tuple[int, str], tuple[pd.Series, str, str]]:
-    """Map (player_id, target) to newest feature row/date, using each player's own history."""
+def _team_ids_by_abbreviation(
+    games: pd.DataFrame,
+    player_teams: dict[int, dict[str, Any]],
+) -> dict[str, int]:
+    """Map NBA team abbreviations to team IDs, preferring current-roster metadata."""
+    result: dict[str, int] = {}
+    for info in player_teams.values():
+        abbreviation = str(info.get("team_abbreviation") or "").strip().upper()
+        team_id = _number_or_none(info.get("team_id"))
+        if abbreviation and team_id is not None:
+            result[abbreviation] = int(team_id)
+
+    required = {"TEAM_ID", "TEAM_ABBREVIATION", "GAME_DATE"}
+    if required.issubset(games.columns):
+        historical = games.copy()
+        historical["GAME_DATE"] = pd.to_datetime(historical["GAME_DATE"], errors="coerce")
+        historical["TEAM_ID"] = pd.to_numeric(historical["TEAM_ID"], errors="coerce")
+        historical["TEAM_ABBREVIATION"] = historical["TEAM_ABBREVIATION"].fillna("").astype(str).str.strip().str.upper()
+        historical = historical.dropna(subset=["GAME_DATE", "TEAM_ID"]).sort_values("GAME_DATE", kind="stable")
+        for row in historical.drop_duplicates("TEAM_ABBREVIATION", keep="last").to_dict(orient="records"):
+            abbreviation = row["TEAM_ABBREVIATION"]
+            if abbreviation and abbreviation not in result:
+                result[abbreviation] = int(row["TEAM_ID"])
+    return result
+
+
+def _build_latest_features(
+    games: pd.DataFrame,
+    active_players: dict[int, str],
+    player_teams: dict[int, dict[str, Any]] | None = None,
+    next_games: dict[str, dict[str, str]] | None = None,
+    opponent_team_metrics: pd.DataFrame | None = None,
+    team_id_by_abbreviation: dict[str, int] | None = None,
+) -> dict[tuple[int, str], tuple[pd.Series, str, str]]:
+    """Build prediction features on a synthetic row for each player's actual next game."""
     features: dict[tuple[int, str], tuple[pd.Series, str, str]] = {}
-    game_groups = {int(pid): group.sort_values("GAME_DATE").copy() for pid, group in games.groupby("PLAYER_ID", sort=False)}
+    player_teams = player_teams or {}
+    next_games = next_games or {}
+    team_id_by_abbreviation = team_id_by_abbreviation or {}
+    game_groups = {
+        int(pid): group.sort_values("GAME_DATE", kind="stable").copy()
+        for pid, group in games.groupby("PLAYER_ID", sort=False)
+    }
     for player_id, player_name in active_players.items():
         player_games = game_groups.get(player_id)
         if player_games is None or player_games.empty:
             log.info("skip %s (%s): no game log in the last three seasons", player_name, player_id)
             continue
+
         last_game_date = pd.to_datetime(player_games["GAME_DATE"].max()).date().isoformat()
+        match_info = _next_match_for_player(
+            player_id, player_teams, next_games,
+            team_id_by_abbreviation=team_id_by_abbreviation,
+        )
+        match_date = pd.to_datetime(match_info.get("match_date"), errors="coerce")
+        last_date = pd.to_datetime(player_games["GAME_DATE"].max(), errors="coerce")
+        if pd.isna(match_date) or pd.isna(last_date) or match_date.normalize() <= last_date.normalize():
+            log.debug(
+                "skip %s (%s): no future game date matched to current team %s",
+                player_name, player_id, match_info.get("team_abbreviation") or "(unknown)",
+            )
+            continue
+
+        # Append an outcome-free next-game row. The lagged features on this row
+        # now include the most recently completed game, unlike the old behavior
+        # which returned the feature row for that completed game itself.
+        latest = player_games.iloc[-1]
+        future_row = latest.to_dict()
+        future_row["GAME_DATE"] = match_date.normalize()
+        team_abbreviation = str(match_info.get("team_abbreviation") or "").strip().upper()
+        opponent_abbreviation = str(match_info.get("opponent_abbreviation") or "").strip().upper()
+        home_away = str(match_info.get("home_away") or "").strip().upper()
+        if team_abbreviation and opponent_abbreviation and home_away in {"HOME", "AWAY"}:
+            future_row["MATCHUP"] = (
+                f"{team_abbreviation} vs. {opponent_abbreviation}"
+                if home_away == "HOME"
+                else f"{team_abbreviation} @ {opponent_abbreviation}"
+            )
+        if match_info.get("team_id") is not None:
+            future_row["TEAM_ID"] = int(match_info["team_id"])
+        if match_info.get("opponent_team_id") is not None:
+            future_row["OPPONENT_TEAM_ID"] = int(match_info["opponent_team_id"])
+        else:
+            future_row["OPPONENT_TEAM_ID"] = 0
+        if "GAME_ID" in future_row:
+            future_row["GAME_ID"] = f"future-{player_id}-{match_date.date().isoformat()}"
+        for stat in TARGETS:
+            if stat in future_row:
+                future_row[stat] = np.nan
+        future_games = pd.concat(
+            [player_games, pd.DataFrame([future_row])],
+            ignore_index=True,
+        )
+
         for target in TARGETS:
             try:
-                frame = build_player_features(player_games, target=target)
+                frame = build_player_features(
+                    future_games,
+                    target=target,
+                    opponent_team_metrics=opponent_team_metrics,
+                )
             except (KeyError, ValueError) as exc:
                 log.warning("skip %s %s feature build: %s", player_name, target, exc)
                 continue
-            if not frame.empty:
-                features[(player_id, target)] = (frame.iloc[-1], player_name, last_game_date)
+            if frame.empty:
+                continue
+            next_rows = frame.loc[pd.to_datetime(frame["GAME_DATE"]).dt.normalize().eq(match_date.normalize())]
+            if next_rows.empty:
+                log.warning("skip %s %s: unable to build next-game features", player_name, target)
+                continue
+            features[(player_id, target)] = (next_rows.iloc[-1], player_name, last_game_date)
+    log.info(
+        "built next-game features for %s player/stat combinations across %s players",
+        len(features), len({key[0] for key in features}),
+    )
     return features
-
 
 def _prediction_record(
     player_id: int,
@@ -267,7 +379,7 @@ def _prediction_record(
         "team": match_info.get("team") or player_team.get("team", ""),
         "team_abbreviation": match_info.get("team_abbreviation") or player_team.get("team_abbreviation", ""),
         "match_date": match_info.get("match_date", ""), "opponent_team": match_info.get("opponent_team", ""),
-        "opponent_abbreviation": match_info.get("opponent_abbreviation", ""), "matchup": match_info.get("matchup", ""),
+        "opponent_abbreviation": match_info.get("opponent_abbreviation", ""), "opponent_team_id": match_info.get("opponent_team_id"), "matchup": match_info.get("matchup", ""),
         "home_away": match_info.get("home_away", ""),
         "target": target, "line": pred.line, "line_source": line_source, "last_game_date": last_game_date,
         "model_expected_value": round(pred.expected_value, 3),
@@ -401,11 +513,6 @@ def main() -> None:
     games = _load_league_history()
     log.info("loaded %s player-game rows across %s players", len(games), games["PLAYER_ID"].nunique())
     active_players = _active_player_map(games)
-    log.info("preparing features for %s candidate active players", len(active_players))
-    feature_lookup = _build_latest_features(games, active_players)
-    if not feature_lookup:
-        raise RuntimeError("No player features were prepared. Check NBA game-log access and available history.")
-
     player_teams = _player_team_metadata(games)
     try:
         next_games = get_next_game_map()
@@ -424,8 +531,26 @@ def main() -> None:
         if not next_games:
             log.error("schedule lookup returned zero teams; team/date/opponent columns will be blank")
     except Exception as exc:
-        log.warning("could not load upcoming NBA schedule; match dates will be blank: %s", exc)
+        log.warning("could not load upcoming NBA schedule; next-game predictions will be skipped: %s", exc)
         next_games = {}
+
+    team_id_by_abbreviation = _team_ids_by_abbreviation(games, player_teams)
+    opponent_team_metrics = build_team_game_metrics(games)
+    log.info(
+        "built opponent context from %s team-game rows across %s teams",
+        len(opponent_team_metrics),
+        opponent_team_metrics["TEAM_ID"].nunique() if not opponent_team_metrics.empty else 0,
+    )
+    log.info("preparing next-game features for %s candidate active players", len(active_players))
+    feature_lookup = _build_latest_features(
+        games, active_players, player_teams, next_games,
+        opponent_team_metrics, team_id_by_abbreviation,
+    )
+    if not feature_lookup:
+        raise RuntimeError(
+            "No next-game features were prepared. Check the schedule lookup and confirm active players "
+            "have a future NBA game with a valid team/opponent mapping."
+        )
 
     bundles = {target: TrainedModel.load(f"artifacts/model_{target}.joblib") for target in TARGETS}
     records: list[dict[str, Any]] = []
@@ -461,7 +586,7 @@ def main() -> None:
             bookmaker = "" if bookmaker_value is None or pd.isna(bookmaker_value) else str(bookmaker_value).strip()
             line_source = "public_web_import" if bookmaker.casefold().startswith(("probetrics public board", "flash odds public board")) else "user_supplied"
             team_meta = player_teams.get(player_id, {})
-            match_info = _next_match_for_player(player_id, player_teams, next_games, row)
+            match_info = _next_match_for_player(player_id, player_teams, next_games, row, team_id_by_abbreviation)
             records.append(_prediction_record(
                 player_id, display_name, target, last_game_date, pred,
                 line_source, odds_over, odds_under, bookmaker, team_meta, match_info,
@@ -470,7 +595,7 @@ def main() -> None:
         for (player_id, target), (feature_row, player_name, last_game_date) in sorted(feature_lookup.items()):
             pred = predict_one(feature_row, line=None, target=target, bundle=bundles[target])
             team_meta = player_teams.get(player_id, {})
-            match_info = _next_match_for_player(player_id, player_teams, next_games)
+            match_info = _next_match_for_player(player_id, player_teams, next_games, team_id_by_abbreviation=team_id_by_abbreviation)
             records.append(_prediction_record(
                 player_id, player_name, target, last_game_date, pred,
                 "not_supplied", player_team=team_meta, match_info=match_info,
