@@ -58,8 +58,8 @@ def _metrics(predictions: list[dict[str, Any]], variant: str, total_goals_line: 
         actual_total = row["actual_home_score"] + row["actual_away_score"]
         if is_integer_line and actual_total == round(total_goals_line):
             continue
-        over_raw = row[f"{variant}_over"]
-        under_raw = row[f"{variant}_under"]
+        over_raw = row.get(f"{variant}_over", 0.0)
+        under_raw = row.get(f"{variant}_under", 0.0)
         denominator = over_raw + under_raw
         if denominator <= 0:
             continue
