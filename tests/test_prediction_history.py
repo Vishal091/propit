@@ -23,7 +23,15 @@ def test_prepare_archive_rows_captures_pregame_prices_and_probabilities():
         "odds_over_american": [-110],
         "odds_under_american": [100],
         "bookmaker": ["Example book"],
+        "bookmaker_over": ["DraftKings"],
+        "bookmaker_under": ["DraftKings"],
         "line_source": ["user_supplied"],
+        "market_source": ["manual snapshot"],
+        "market_snapshot_at_utc": ["2026-10-24T00:00:00Z"],
+        "opening_line": [6.5],
+        "source_line_move": [1.0],
+        "previous_line": [7.0],
+        "line_move_from_previous": [0.5],
     })
     rows = prepare_archive_rows(source, "2026-10-24", "2026-10-24T00:00:00+00:00")
     assert rows.iloc[0]["snapshot_date"] == "2026-10-24"
@@ -34,6 +42,11 @@ def test_prepare_archive_rows_captures_pregame_prices_and_probabilities():
     assert rows.iloc[0]["target"] == "REB"
     assert rows.iloc[0]["p_over"] == pytest.approx(0.42)
     assert rows.iloc[0]["odds_under_american"] == 100
+    assert rows.iloc[0]["market_source"] == "manual snapshot"
+    assert rows.iloc[0]["market_snapshot_at_utc"] == "2026-10-24T00:00:00Z"
+    assert rows.iloc[0]["opening_line"] == pytest.approx(6.5)
+    assert rows.iloc[0]["line_move_from_previous"] == pytest.approx(0.5)
+    assert rows.iloc[0]["bookmaker_over"] == "DraftKings"
     assert rows.iloc[0]["settlement_status"] == "PENDING"
 
 
