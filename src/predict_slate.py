@@ -260,7 +260,8 @@ def _prediction_record(
     under_ev = expected_profit_per_unit(p_under, odds_under)
     return {
         "player_id": player_id, "player_name": player_name,
-        "team": player_team.get("team", ""), "team_abbreviation": player_team.get("team_abbreviation", ""),
+        "team": match_info.get("team") or player_team.get("team", ""),
+        "team_abbreviation": match_info.get("team_abbreviation") or player_team.get("team_abbreviation", ""),
         "match_date": match_info.get("match_date", ""), "opponent_team": match_info.get("opponent_team", ""),
         "opponent_abbreviation": match_info.get("opponent_abbreviation", ""), "matchup": match_info.get("matchup", ""),
         "target": target, "line": pred.line, "line_source": line_source, "last_game_date": last_game_date,
