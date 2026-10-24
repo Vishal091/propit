@@ -19,6 +19,8 @@ import pandas as pd
 import requests
 from bs4 import BeautifulSoup
 
+from src.market_comparison import DEFAULT_MARKET_HISTORY, record_market_snapshot
+
 log = logging.getLogger("fetch_public_props")
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 
@@ -186,7 +188,10 @@ def _parse_card_layout(
             "line": line,
             "odds_over": odds_over,
             "odds_under": odds_under,
+            "bookmaker_over": over_book,
+            "bookmaker_under": under_book,
             "bookmaker": f"Flash Odds public board (over {over_book}; under {under_book})",
+            "market_source": "Flash Odds public board",
         })
     return rows, saw_market_row
 
@@ -247,7 +252,10 @@ def parse_props_html(
                 "line": line,
                 "odds_over": odds_over,
                 "odds_under": odds_under,
+                "bookmaker_over": over_book,
+                "bookmaker_under": under_book,
                 "bookmaker": f"Flash Odds public board (over {over_book}; under {under_book})",
+                "market_source": "Flash Odds public board",
             })
     if matched_tables == 0 or not rows_out:
         # Newer source versions use a grid/card layout rather than a <table>.
@@ -399,7 +407,10 @@ def _merge_market_rows(
     return list(merged.values())
 
 
-def fetch_all(output: Path) -> pd.DataFrame:
+def fetch_all(
+    output: Path,
+    history_path: Path = DEFAULT_MARKET_HISTORY,
+) -> pd.DataFrame:
     players = load_canonical_players()
     session = requests.Session()
     all_rows: list[dict[str, Any]] = []
@@ -461,11 +472,17 @@ def fetch_all(output: Path) -> pd.DataFrame:
         raise RuntimeError("No usable lines parsed. The source layout may have changed or markets may not be posted.")
     frame = pd.DataFrame(
         all_rows,
-        columns=["player_id", "player_name", "target", "line", "odds_over", "odds_under", "bookmaker"],
+        columns=[
+            "player_id", "player_name", "target", "line", "odds_over", "odds_under",
+            "bookmaker_over", "bookmaker_under", "bookmaker", "market_source",
+        ],
     )
     frame = frame.dropna(subset=["line", "odds_over", "odds_under"])
-    frame = frame.drop_duplicates(subset=["player_name", "target", "line"], keep="first")
+    frame = frame.drop_duplicates(subset=["player_name", "target", "line", "market_source"], keep="first")
     frame = frame.sort_values(["target", "player_name"], kind="stable").reset_index(drop=True)
+    # Every successful import is an immutable market observation. The same
+    # history file is used to show line/price movement from the previous pull.
+    frame = record_market_snapshot(frame, history_path=history_path, market_source="Flash Odds public board")
     output.parent.mkdir(parents=True, exist_ok=True)
     frame.to_csv(output, index=False)
     matched = int(frame["player_id"].notna().sum())
@@ -477,9 +494,10 @@ def fetch_all(output: Path) -> pd.DataFrame:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, default=Path("data/prop_lines_public.csv"))
+    parser.add_argument("--history", type=Path, default=DEFAULT_MARKET_HISTORY, help="append-only market observation history")
     args = parser.parse_args()
     try:
-        frame = fetch_all(args.output)
+        frame = fetch_all(args.output, history_path=args.history)
     except Exception as exc:
         log.error("public line import failed: %s", exc)
         return 1
