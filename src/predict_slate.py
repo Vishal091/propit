@@ -328,6 +328,14 @@ def _build_latest_features(
                 player_name, player_id, match_info.get("team_abbreviation") or "(unknown)",
             )
             continue
+        if not match_info.get("team_id") or not match_info.get("opponent_team_id"):
+            log.warning(
+                "skip %s (%s): could not map both scheduled teams to NBA team IDs (%s vs %s)",
+                player_name, player_id,
+                match_info.get("team_abbreviation") or "(unknown)",
+                match_info.get("opponent_abbreviation") or "(unknown)",
+            )
+            continue
 
         # Append an outcome-free next-game row. The lagged features on this row
         # now include the most recently completed game, unlike the old behavior
@@ -569,7 +577,7 @@ def main() -> None:
                 ", ".join(unmatched),
             )
         if not next_games:
-            log.error("schedule lookup returned zero teams; team/date/opponent columns will be blank")
+            log.error("schedule lookup returned zero teams; next-game projections will be skipped")
     except Exception as exc:
         log.warning("could not load upcoming NBA schedule; next-game predictions will be skipped: %s", exc)
         next_games = {}
