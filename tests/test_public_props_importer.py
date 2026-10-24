@@ -29,3 +29,44 @@ def test_parse_public_table_and_skip_integer_lines():
     assert rows[0]["odds_over"] == -110
     assert rows[0]["odds_under"] == 100
     assert rows[0]["target"] == "PTS"
+
+def test_parse_card_layout_with_div_rows_when_no_html_table_exists():
+    html = """
+    <html><body>
+      <div class="prop-row">
+        <span>☆</span><span>Aaron Nesmith</span><span>2/ 11.5</span>
+        <span>11.5</span><span>DK−113 (opens DraftKings in a new tab)</span>
+        <span>FD−102 (opens FanDuel in a new tab)</span>
+      </div>
+      <div class="prop-row">
+        <span>☆</span><span>Test Guard</span><span>8/ 7.5</span>
+        <span>7.5</span><span>MGM+105 (opens BetMGM in a new tab)</span>
+        <span>DK−115 (opens DraftKings in a new tab)</span>
+      </div>
+    </body></html>
+    """
+    players = {
+        normalize_name("Aaron Nesmith"): (100, "Aaron Nesmith"),
+        normalize_name("Test Guard"): (200, "Test Guard"),
+    }
+    rows = parse_props_html(html, "PTS", players)
+    by_name = {row["player_name"]: row for row in rows}
+    assert set(by_name) == {"Aaron Nesmith", "Test Guard"}
+    assert by_name["Aaron Nesmith"]["line"] == 11.5
+    assert by_name["Aaron Nesmith"]["odds_over"] == -113
+    assert by_name["Aaron Nesmith"]["odds_under"] == -102
+    assert by_name["Test Guard"]["line"] == 7.5
+    assert by_name["Test Guard"]["odds_over"] == 105
+    assert by_name["Test Guard"]["odds_under"] == -115
+
+
+def test_parse_card_layout_still_skips_integer_lines():
+    html = """
+    <html><body><div class="prop-row">
+      <span>Test Guard</span><span>5/ 8.0</span><span>8.0</span>
+      <span>DK−110</span><span>FD−110</span>
+    </div></body></html>
+    """
+    rows = parse_props_html(html, "PTS", {normalize_name("Test Guard"): (200, "Test Guard")})
+    assert rows == []
+
