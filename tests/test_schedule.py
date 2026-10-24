@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from src.data.schedule import _as_date, build_next_game_map
+from src.data.schedule import _as_date, build_espn_next_game_map, build_next_game_map
 
 
 def _game(day, status, home, away):
@@ -85,3 +85,54 @@ def test_next_game_map_does_not_invent_dates_for_teams_without_upcoming_games():
         }
     }
     assert build_next_game_map(payload, as_of=date(2026, 10, 24)) == {}
+
+
+
+def _espn_event(day, state, home_abbr="CHI", away_abbr="BKN"):
+    return {
+        "date": f"{day}T23:30:00Z",
+        "status": {"type": {"state": state, "completed": state == "post"}},
+        "competitions": [{
+            "competitors": [
+                {"homeAway": "home", "team": {"abbreviation": home_abbr, "displayName": "Chicago Bulls"}},
+                {"homeAway": "away", "team": {"abbreviation": away_abbr, "displayName": "Brooklyn Nets"}},
+            ]
+        }],
+    }
+
+
+def test_espn_schedule_map_adds_team_opponent_date_and_home_away():
+    payloads = [{
+        "events": [
+            _espn_event("2026-10-25", "post", "CHI", "BKN"),
+            _espn_event("2026-10-26", "pre", "CHI", "MIL"),
+            _espn_event("2026-10-27", "pre", "BKN", "MIL"),
+        ]
+    }]
+
+    result = build_espn_next_game_map(payloads, as_of=date(2026, 10, 25))
+
+    # 23:30 UTC is 19:30 US Eastern during daylight time, i.e. still Oct 25.
+    assert result["CHI"]["match_date"] == "2026-10-26"
+    assert result["CHI"]["opponent_team"] == "Brooklyn Nets"
+    assert result["CHI"]["opponent_abbreviation"] == "MIL"
+    assert result["CHI"]["home_away"] == "HOME"
+    assert result["BKN"]["match_date"] == "2026-10-27"
+
+
+def test_espn_schedule_map_normalizes_common_abbreviation_variants():
+    payloads = [{"events": [_espn_event("2026-10-25", "pre", "GS", "NY")]}]
+
+    result = build_espn_next_game_map(payloads, as_of=date(2026, 10, 24))
+
+    assert "GSW" in result
+    assert result["GSW"]["opponent_abbreviation"] == "NYK"
+    assert result["NYK"]["opponent_abbreviation"] == "GSW"
+
+
+def test_espn_schedule_map_does_not_require_exactly_two_calendar_days():
+    payloads = [{"events": [_espn_event("2026-10-24", "pre", "CHI", "BKN")]}]
+
+    # 23:30 UTC on Oct 24 is 19:30 US Eastern and remains Oct 24.
+    result = build_espn_next_game_map(payloads, as_of=date(2026, 10, 24))
+    assert result["CHI"]["match_date"] == "2026-10-24"
