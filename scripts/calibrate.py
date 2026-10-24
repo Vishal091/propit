@@ -61,30 +61,44 @@ def prepare_rows(path: Path) -> pd.DataFrame:
     return df.sort_values("game_date", kind="stable").reset_index(drop=True)
 
 
+def _timestamped_price_row(row: dict[str, object]) -> bool:
+    """Only simulate ROI when prices were archived with a timestamp."""
+    stamp = row.get("snapshot_at_utc")
+    if stamp is None or not str(stamp).strip():
+        return False
+    parsed = pd.to_datetime(stamp, utc=True, errors="coerce")
+    return bool(pd.notna(parsed))
+
+
 def _metrics(frame: pd.DataFrame, probability_col: str) -> dict[str, float | int]:
     y = frame["actual_over"].astype(int).to_numpy()
     p = frame[probability_col].clip(1e-6, 1 - 1e-6).to_numpy()
     brier = float(brier_score_loss(y, p))
     loss = float(log_loss(y, p, labels=[0, 1]))
     hit = float(((p >= 0.5) == (y == 1)).mean())
-    # Simulate choosing the side with higher positive EV; one unit per wager.
+    # Probability quality uses all valid holdout rows. Historical ROI is only
+    # simulated for archived rows with timestamped prices and both side prices.
     profits: list[float] = []
+    timestamped_rows = 0
+    priced_rows = 0
     for row, prob, outcome in zip(frame.to_dict("records"), p, y):
-        over_odds = row.get("odds_over_american")
-        under_odds = row.get("odds_under_american")
+        if not _timestamped_price_row(row):
+            continue
+        timestamped_rows += 1
         try:
-            over_odds, under_odds = float(over_odds), float(under_odds)
+            over_odds = float(row.get("odds_over_american"))
+            under_odds = float(row.get("odds_under_american"))
         except (TypeError, ValueError):
             continue
         over_dec = american_to_decimal(over_odds)
         under_dec = american_to_decimal(under_odds)
         if over_dec is None or under_dec is None:
             continue
+        priced_rows += 1
         over_ev = prob * (over_dec - 1) - (1 - prob)
         under_prob = 1 - prob
         under_ev = under_prob * (under_dec - 1) - (1 - under_prob)
-        best_ev = max(over_ev, under_ev)
-        if best_ev <= 0:
+        if max(over_ev, under_ev) <= 0:
             continue
         if over_ev >= under_ev:
             profits.append(_profit(prob, over_odds, outcome))
@@ -95,6 +109,8 @@ def _metrics(frame: pd.DataFrame, probability_col: str) -> dict[str, float | int
         "hit_rate": hit,
         "brier": brier,
         "log_loss": loss,
+        "timestamped_rows": timestamped_rows,
+        "priced_rows": priced_rows,
         "bets": len(profits),
         "net_units": float(np.sum(profits)) if profits else 0.0,
         "roi": float(np.mean(profits)) if profits else float("nan"),
@@ -102,22 +118,33 @@ def _metrics(frame: pd.DataFrame, probability_col: str) -> dict[str, float | int
 
 
 def reliability(frame: pd.DataFrame, probability_col: str, n_bins: int = 10) -> pd.DataFrame:
+    """Return reliability buckets as numeric, JSON-safe values."""
+    if n_bins < 1:
+        raise ValueError("n_bins must be at least 1")
     df = frame.copy()
-    df["probability_bin"] = pd.cut(
+    edges = np.linspace(0, 1, n_bins + 1)
+    df["_bin_index"] = pd.cut(
         df[probability_col].clip(0, 1),
-        bins=np.linspace(0, 1, n_bins + 1),
+        bins=edges,
+        labels=False,
         include_lowest=True,
     )
-    return (
-        df.groupby("probability_bin", observed=True)
+    grouped = (
+        df.dropna(subset=["_bin_index"])
+        .groupby("_bin_index", observed=True)
         .agg(
             count=("actual_over", "size"),
             mean_predicted=(probability_col, "mean"),
             observed_over_rate=("actual_over", "mean"),
         )
-        .assign(calibration_gap=lambda x: x["observed_over_rate"] - x["mean_predicted"])
         .reset_index()
     )
+    grouped["_bin_index"] = grouped["_bin_index"].astype(int)
+    grouped["bin_lower"] = grouped["_bin_index"].map(lambda index: float(edges[index]))
+    grouped["bin_upper"] = grouped["_bin_index"].map(lambda index: float(edges[index + 1]))
+    grouped["bin_center"] = (grouped["bin_lower"] + grouped["bin_upper"]) / 2.0
+    grouped["calibration_gap"] = grouped["observed_over_rate"] - grouped["mean_predicted"]
+    return grouped.drop(columns=["_bin_index"]).reset_index(drop=True)
 
 
 def evaluate_group(frame: pd.DataFrame, label: str) -> dict[str, object]:
@@ -178,10 +205,11 @@ def main() -> None:
         for kind in ("raw", "calibrated"):
             metric = report[kind]
             roi = metric["roi"]
-            roi_text = f"{roi:.1%}" if math.isfinite(roi) else "n/a (no odds/bets)"
+            roi_text = f"{roi:.1%}" if math.isfinite(roi) else "n/a (no timestamped odds/bets)"
             print(
-                f"{kind:10s} hit={metric['hit_rate']:.1%} "
+                f"{kind:10s} n={metric['n']} hit={metric['hit_rate']:.1%} "
                 f"Brier={metric['brier']:.4f} logloss={metric['log_loss']:.4f} "
+                f"timestamped_prices={metric['timestamped_rows']} eligible_prices={metric['priced_rows']} "
                 f"bets={metric['bets']} net={metric['net_units']:+.2f}u ROI={roi_text}"
             )
     print(f"\nHoldout rows with calibrated probabilities: {args.output}")
