@@ -93,8 +93,8 @@ def test_market_implied_baseline_rejects_snapshots_after_kickoff_and_fuzzy_teams
     assert summary["matched_1x2_predictions"] == 0
 
     odds = parse_odds_payload(
-        odds_payload(), sport_key="soccer_epl", competition_name="Premier League",
-        snapshot_mode="historical",
+        {"timestamp": "2026-11-01T14:02:00Z", "data": odds_payload()},
+        sport_key="soccer_epl", competition_name="Premier League", snapshot_mode="historical",
         requested_snapshot_at_utc="2026-11-01T14:02:00Z",
         retrieved_at_utc="2026-11-01T14:03:00Z",
     )
