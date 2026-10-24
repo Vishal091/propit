@@ -15,8 +15,10 @@ import pandas as pd
 DEFAULT_INPUT = Path("predictions/latest.csv")
 DEFAULT_OUTPUT = Path("data/prediction_history.csv")
 COLUMNS = [
-    "game_date", "snapshot_at_utc", "player_id", "player_name", "target",
-    "line", "p_over", "actual_over", "actual_stat",
+    "game_date", "snapshot_date", "snapshot_at_utc",
+    "player_id", "player_name", "team", "team_abbreviation",
+    "match_date", "opponent_team", "opponent_abbreviation", "matchup",
+    "target", "line", "p_over", "actual_over", "actual_stat",
     "odds_over_american", "odds_under_american", "bookmaker", "line_source",
     "settlement_status",
 ]
@@ -36,11 +38,20 @@ def prepare_archive_rows(predictions: pd.DataFrame, game_date: str, snapshot_at_
     if probability_col not in predictions:
         raise ValueError("prediction file must contain p_over or model_p_over")
 
-    out = pd.DataFrame()
-    out["game_date"] = game_day
+    out = pd.DataFrame(index=predictions.index)
+    out["snapshot_date"] = game_day
     out["snapshot_at_utc"] = snapshot_at_utc
     out["player_id"] = pd.to_numeric(predictions["player_id"], errors="coerce").astype("Int64")
     out["player_name"] = predictions["player_name"].astype(str).str.strip()
+    for column in ("team", "team_abbreviation", "opponent_team", "opponent_abbreviation", "matchup"):
+        out[column] = predictions[column].fillna("").astype(str).str.strip() if column in predictions else ""
+    if "match_date" in predictions:
+        match_dates = pd.to_datetime(predictions["match_date"], errors="coerce")
+        out["match_date"] = match_dates.dt.strftime("%Y-%m-%d").fillna("")
+    else:
+        out["match_date"] = ""
+    # game_date is the actual event date when known; snapshot_date records when this slate was saved.
+    out["game_date"] = out["match_date"].where(out["match_date"].astype(str).str.len().gt(0), game_day)
     out["target"] = predictions["target"].astype(str).str.upper().str.strip()
     out["line"] = pd.to_numeric(predictions["line"], errors="coerce")
     out["p_over"] = pd.to_numeric(predictions[probability_col], errors="coerce")
@@ -84,7 +95,15 @@ def main() -> None:
     args.output.parent.mkdir(parents=True, exist_ok=True)
     if args.output.exists():
         existing = pd.read_csv(args.output)
-        if not args.append_snapshot and "game_date" in existing and existing["game_date"].astype(str).eq(game_day).any():
+        if "snapshot_date" in existing.columns:
+            snapshot_dates = existing["snapshot_date"].copy()
+            if "game_date" in existing.columns:
+                missing_snapshot = snapshot_dates.isna() | snapshot_dates.astype(str).str.strip().isin(["", "nan", "NaT", "<NA>"])
+                snapshot_dates = snapshot_dates.where(~missing_snapshot, existing["game_date"])
+        else:
+            snapshot_dates = existing["game_date"] if "game_date" in existing.columns else pd.Series(dtype=str)
+        normalized_snapshot_dates = pd.to_datetime(snapshot_dates, errors="coerce").dt.strftime("%Y-%m-%d")
+        if not args.append_snapshot and normalized_snapshot_dates.eq(game_day).any():
             raise SystemExit(
                 f"{args.output} already contains a snapshot for {game_day}. "
                 "Use --append-snapshot only if you intentionally want to preserve another pregame market snapshot."
@@ -94,9 +113,11 @@ def main() -> None:
                 existing[column] = pd.NA
         rows = pd.concat([existing[COLUMNS], rows], ignore_index=True)
     rows.to_csv(args.output, index=False)
-    odds_count = int(rows.loc[rows["game_date"].astype(str).eq(game_day), ["odds_over_american", "odds_under_american"]].notna().all(axis=1).sum())
-    print(f"Archived {len(rows.loc[rows['game_date'].astype(str).eq(game_day)])} rows for {game_day} to {args.output}.")
-    print(f"Rows for this date with both prices: {odds_count}. Confirm this was run before tip-off.")
+    snapshot_rows = rows.loc[rows["snapshot_date"].astype(str).eq(game_day)]
+    odds_count = int(snapshot_rows[["odds_over_american", "odds_under_american"]].notna().all(axis=1).sum())
+    dated_games = int(snapshot_rows["match_date"].astype(str).str.len().gt(0).sum())
+    print(f"Archived {len(snapshot_rows)} rows for snapshot date {game_day} to {args.output}.")
+    print(f"Rows with a scheduled match date: {dated_games}; rows with both prices: {odds_count}. Confirm this was run before tip-off.")
 
 
 if __name__ == "__main__":
