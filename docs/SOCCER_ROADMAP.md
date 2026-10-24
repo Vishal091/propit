@@ -68,9 +68,18 @@ For integer totals, exact-line results are treated as pushes and excluded from b
 Lower log loss and Brier score are better. The report does not claim profitability or calibration, and
 the quality of results depends on the league/season coverage imported.
 
+## Phase 4: dashboard/API integration (implemented)
+
+- Add the Soccer analytics sidebar/tab while hiding NBA-specific global workflow actions on the soccer view.
+- Display imported/scored/upcoming/backtest counts, competition/source entries and file timestamps.
+- Filter saved fixtures/results and forecasts by date, competition and view.
+- Explicitly load the StatsBomb catalog, import a selected provider dataset, generate forecasts and run the backtest through allow-listed local commands.
+- Display the saved independent-Poisson and Dixon-Coles evaluation metrics and data coverage caveats.
+- Add API routes under `/api/soccer/*` and tests for empty/available states, filtering, invalid dates, catalog parsing and controlled CLI invocations.
+
 ## Next phase
 
-### Phase 4: dashboard/API integration
+### Phase 5: calibration and richer dashboard insights
 
 1. Add a Soccer tab without changing NBA defaults, filters, or API behavior.
 2. Display fixtures, competition, model expected goals, 1X2/totals probabilities, sample size, freshness
@@ -90,3 +99,4 @@ probability edge from mismatched or unavailable prices.
 Optional competition filtering uses the provider competition ID exactly as stored by the importer.
 The CSV output contains both Poisson and experimental Dixon-Coles probabilities plus a generation
 timestamp and historical sample counts. The CLI does not fetch odds, lineups, or injury information.
+Phase 4 does not modify the existing NBA tab behavior or run data imports on page load. Imports, forecast generation and backtests are user-triggered actions. The UI reads the resulting local data files.

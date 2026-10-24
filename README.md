@@ -1,6 +1,6 @@
-# PropIt — Free NBA Player Prop Research
+# PropIt — NBA Player Props + Soccer Match Analytics
 
-PropIt is a local-first NBA player-stat projection and market-comparison project. It trains points, rebounds, and assists models over league-wide player-game data, then can rank supplied markets into a shortlist.
+PropIt is a local-first sports analytics research project. Its NBA module estimates player props; its separate soccer module imports fixtures/results, estimates expected goals, generates match probabilities, and evaluates models chronologically. Soccer work is isolated from the NBA pipeline.
 
 Research/education only. Predictions and probability estimates are experimental, not guarantees of accuracy or profit. Public prop prices can be delayed, unavailable in your region, or tied to US sportsbooks; verify them independently.
 
@@ -265,3 +265,20 @@ The command writes predictions/soccer/upcoming.csv. It forecasts scheduled rows 
 data and uses only completed matches with earlier dates. It includes both independent-Poisson and
 experimental Dixon-Coles probabilities, expected goals, data history counts, and a prediction timestamp.
 No bookmaker odds, confirmed lineups, or injury/news feed are included; do not treat this as betting advice.
+## Soccer dashboard
+
+Run the existing local dashboard:
+
+    .\\.venv\\Scripts\\python.exe -m src.dashboard
+
+Open http://127.0.0.1:8766 and select **Soccer analytics** in the sidebar. This view is separate from the NBA slate/history workflows and can:
+
+- Show imported fixtures, scored matches, saved forecasts, and the last backtest sample.
+- Load the StatsBomb competition/season catalog on demand, or import OpenFootball league fixtures/results.
+- Generate upcoming-fixture probabilities for a selected date range and competition.
+- Run the chronological Poisson vs Dixon-Coles backtest and display log loss, Brier score, accuracy and expected-goal error.
+- Filter fixtures/results and forecasts by date and competition.
+
+Use the **Import soccer data** controls to populate the dataset, then **Generate forecasts** or **Run backtest**. Network access happens only when the user requests the catalog or an import; ordinary dashboard page loads read local files. Long season/event imports can take time, particularly when shot-level xG is selected.
+
+The soccer APIs are local workspace endpoints under `/api/soccer/*`. Imported records live at `data/soccer/matches.csv`; forecast and backtest files live under `predictions/soccer/`. The dashboard does not currently import bookmaker odds, confirmed lineups or injuries and does not place bets.
