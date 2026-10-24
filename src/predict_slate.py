@@ -49,6 +49,33 @@ def expected_profit_per_unit(probability: float | None, odds: float | int | None
     return float(probability) * (decimal - 1.0) - (1.0 - float(probability))
 
 
+def _validate_model_feature_context(bundle: TrainedModel, target: str) -> None:
+    """Reject old artifacts that learned opponent context as constants."""
+    feature_stds = getattr(bundle, "feature_stds", None)
+    if not isinstance(feature_stds, dict):
+        raise RuntimeError(
+            f"The {target} model artifact predates the next-game/opponent-context update. "
+            "Run .\\.venv\\Scripts\\python.exe -m src.train_model before refreshing the slate."
+        )
+    unusable = [
+        column for column in ("opp_def_rating", "opp_pace")
+        if not _is_positive_finite(feature_stds.get(column))
+    ]
+    if unusable:
+        raise RuntimeError(
+            f"The {target} model was trained without varying opponent context ({', '.join(unusable)}). "
+            "Rebuild the models with .\\.venv\\Scripts\\python.exe -m src.train_model."
+        )
+
+
+def _is_positive_finite(value: Any) -> bool:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return False
+    return bool(np.isfinite(parsed) and parsed > 1e-6)
+
+
 def _load_league_history() -> pd.DataFrame:
     """Fetch the current season and two seasons of history for rolling features."""
     seasons = recent_seasons(current_season(), count=3)
@@ -517,6 +544,12 @@ def main() -> None:
     if args.min_ev < 0 or args.max_data_age_days < 0:
         parser.error("--min-ev and --max-data-age-days must be non-negative")
 
+    bundles: dict[str, TrainedModel] = {}
+    for target in TARGETS:
+        bundle = TrainedModel.load(f"artifacts/model_{target}.joblib")
+        _validate_model_feature_context(bundle, target)
+        bundles[target] = bundle
+
     games = _load_league_history()
     log.info("loaded %s player-game rows across %s players", len(games), games["PLAYER_ID"].nunique())
     active_players = _active_player_map(games)
@@ -543,6 +576,11 @@ def main() -> None:
 
     team_id_by_abbreviation = _team_ids_by_abbreviation(games, player_teams)
     opponent_team_metrics = build_team_game_metrics(games)
+    if opponent_team_metrics.empty:
+        raise RuntimeError(
+            "Could not build opponent context from historical player logs. "
+            "Required fields include TEAM_ID, OPPONENT_TEAM_ID, PTS, FGA, FTA, OREB and TOV."
+        )
     log.info(
         "built opponent context from %s team-game rows across %s teams",
         len(opponent_team_metrics),
@@ -559,7 +597,6 @@ def main() -> None:
             "have a future NBA game with a valid team/opponent mapping."
         )
 
-    bundles = {target: TrainedModel.load(f"artifacts/model_{target}.joblib") for target in TARGETS}
     records: list[dict[str, Any]] = []
 
     if args.lines is not None:
