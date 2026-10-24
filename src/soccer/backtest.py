@@ -211,6 +211,13 @@ def run_rolling_backtest(
     for (competition_id, season_id, season_name), group_rows in sorted(season_groups.items()):
         season_summaries.append({
             "competition_id": competition_id,
+            "competition_name": next((
+                row.get("competition_name", "") for row in completed
+                if str(row.get("competition_id", "")) == competition_id
+                and str(row.get("season_id", "")) == season_id
+                and str(row.get("season_name", "")) == season_name
+                and row.get("competition_name")
+            ), ""),
             "season_id": season_id,
             "season_name": season_name,
             "scored_matches_in_source": completed_by_season[(competition_id, season_id, season_name)],
