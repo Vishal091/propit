@@ -110,7 +110,7 @@ Run the chronological calibration and holdout evaluation:
 
     .\.venv\Scripts\python.exe -m scripts.calibrate data\settled_props.csv
 
-The script fits isotonic calibration only on the earliest 70% of dates, then evaluates on the later 30%. It reports hit rate, Brier score, log loss, positive-EV simulated bets, net units, and ROI separately for PTS/REB/AST. It writes holdout rows with calibrated probabilities to predictions/backtest_holdout.csv. It refuses to report a target's holdout metrics if the sample is too small.
+The script fits isotonic calibration only on the earliest 70% of dates, then evaluates on the later 30%. It reports hit rate, Brier score, log loss, and probability reliability buckets separately for PTS/REB/AST. It writes holdout rows with calibrated probabilities to predictions/backtest_holdout.csv. It refuses to report a target's holdout metrics if the sample is too small. Historical ROI simulation only counts rows that have both over/under prices and a recorded snapshot_at_utc timestamp from the archived pregame workflow; untimestamped or reconstructed prices are excluded from ROI, although their settled outcomes may still be used to evaluate probability quality.
 
 **Do not train and evaluate calibration on the same rows.** Use predictions stored before outcomes were known; reconstructing predictions from today's model after seeing results creates leakage. Brier/log loss measure probability quality; ROI is meaningful only when the historical odds and line were genuinely available pregame.
 
@@ -136,7 +136,7 @@ The tests cover player-isolated rolling features, minutes/usage feature timing, 
 - Opponent defense and possession-volume context is reconstructed from player game logs using estimated possessions (FGA + 0.44 × FTA − OREB + TOV). It is an approximation, not an official NBA pace/defensive-rating feed; each historical feature is joined from games strictly before the target game's date.
 - Minutes/role context uses rolling minutes and recent-versus-season minute trends because the current feed does not provide a dependable starter/bench designation for every historical row. The usage proxy (FGA + 0.44 × FTA + TOV) is not the official NBA usage percentage.
 - The over/under probability currently uses each row's predicted 10th–90th percentile spread rather than one global residual standard deviation. It is still a distributional estimate, **not calibrated confidence**, and is capped to avoid extreme 0%/100% claims.
-- The probability calibration script requires historical pregame predictions and settled props. The current public importer only supplies a current snapshot, not historical lines/odds, so it cannot by itself establish historical betting ROI.
+- The probability calibration script requires historical pregame predictions and settled props. The current public importer only supplies a current snapshot, not historical lines/odds, so it cannot by itself establish historical betting ROI. A timestamped archived price provides traceability, but ROI is still a historical simulation rather than proof that an edge will persist.
 - A low mean absolute error or high predicted probability is not proof of profitable betting.
 - Current roster status is not an official injury or game-availability feed.
 - Integer prop lines are skipped by the importer because the current EV model does not account for push probability.
