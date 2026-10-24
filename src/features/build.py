@@ -84,6 +84,19 @@ def build_team_game_metrics(games: pd.DataFrame, window: int = TEAM_CONTEXT_WIND
     return team_games[columns].sort_values(["GAME_DATE", "TEAM_ID"], kind="stable").reset_index(drop=True)
 
 
+def _numeric_minutes(values: pd.Series) -> pd.Series:
+    """Parse numeric minutes or MM:SS strings into decimal minutes."""
+    numeric = pd.to_numeric(values, errors="coerce")
+    missing = numeric.isna() & values.notna()
+    if missing.any():
+        pieces = values.astype(str).str.extract(r"^\s*(\d+):(\d{1,2})(?:\.(\d+))?\s*$")
+        parsed = pd.to_numeric(pieces[0], errors="coerce") + (
+            pd.to_numeric(pieces[1], errors="coerce") / 60.0
+        )
+        numeric.loc[missing] = parsed.loc[missing]
+    return numeric
+
+
 def build_player_features(
     games: pd.DataFrame,
     target: str,
@@ -204,8 +217,54 @@ def _build_single_player_features(
     df["OPPONENT_TEAM_ID"] = pd.to_numeric(df["OPPONENT_TEAM_ID"], errors="coerce").fillna(0)
     df["rest_days"] = df["GAME_DATE"].diff().dt.days.fillna(7).clip(upper=14)
     df["is_home"] = df["MATCHUP"].astype(str).str.contains(r"\bvs\b", case=False, na=False).astype(int)
-    for window in ROLLING_WINDOWS:
-        df[f"last{window}_{target}_mean"] = df[target].shift(1).rolling(window=window, min_periods=1).mean()
+
+    # Game-log feeds sometimes format MIN as MM:SS. Normalize it before
+    # creating any rolling minute/role features.
+    if "MIN" not in df:
+        df["MIN"] = np.nan
+    df["MIN"] = _numeric_minutes(df["MIN"])
+    for column in ("FGA", "FTA", "TOV", "PTS", "REB", "AST"):
+        if column not in df:
+            df[column] = np.nan
+        df[column] = pd.to_numeric(df[column], errors="coerce")
+
+    # Cross-stat recent form: points models can learn from rebounds/assists,
+    # and vice versa, with every average shifted away from the target game.
+    for stat in ("PTS", "REB", "AST"):
+        for window in (5, 10):
+            df[f"last{window}_{stat}_mean"] = (
+                df[stat].shift(1).rolling(window=window, min_periods=1).mean()
+            )
+
+    # Minutes level and trend act as a proxy for playing role. This is not an
+    # official starter/bench label; it detects recent role/minute changes.
+    for window in (5, 10):
+        df[f"last{window}_MIN_mean"] = (
+            df["MIN"].shift(1).rolling(window=window, min_periods=1).mean()
+        )
+    df["season_MIN_mean"] = df["MIN"].shift(1).expanding(min_periods=1).mean()
+    df["minutes_trend"] = df["last5_MIN_mean"] - df["season_MIN_mean"]
+    df["minutes_role_ratio"] = (
+        df["last5_MIN_mean"] / df["season_MIN_mean"].where(df["season_MIN_mean"] > 0)
+    )
+
+    # Attempts and turnovers form a transparent usage proxy, not official USG%.
+    # Per-minute rate helps separate volume from the amount of floor time.
+    df["usage_proxy"] = df["FGA"] + 0.44 * df["FTA"] + df["TOV"]
+    df["usage_proxy_per_minute"] = (
+        df["usage_proxy"] / df["MIN"].where(df["MIN"] > 0)
+    )
+    for column in ("FGA", "FTA", "TOV", "usage_proxy", "usage_proxy_per_minute"):
+        for window in (5, 10):
+            df[f"last{window}_{column}_mean"] = (
+                df[column].shift(1).rolling(window=window, min_periods=1).mean()
+            )
+        df[f"season_{column}_mean"] = df[column].shift(1).expanding(min_periods=1).mean()
+
+    # Target's longer rolling baseline and smooth seasonal level.
+    df[f"last20_{target}_mean"] = (
+        df[target].shift(1).rolling(window=20, min_periods=1).mean()
+    )
     df[f"ema_{target}"] = df[target].shift(1).ewm(alpha=0.3, adjust=False).mean()
     df[f"season_{target}_mean"] = df[target].shift(1).expanding(min_periods=1).mean()
     if opponent_team_metrics is not None or not {"opp_def_rating", "opp_pace"}.issubset(df.columns):
@@ -222,6 +281,25 @@ def feature_columns(target: str) -> list[str]:
     if target not in {"PTS", "REB", "AST"}:
         raise ValueError(f"target must be PTS, REB, or AST; got {target}")
     static = ["rest_days", "is_home", "opp_def_rating", "opp_pace"]
-    rolling = [f"last{window}_{target}_mean" for window in ROLLING_WINDOWS]
-    rolling += [f"ema_{target}", f"season_{target}_mean"]
-    return static + rolling
+    role = [
+        "last5_MIN_mean", "last10_MIN_mean", "season_MIN_mean",
+        "minutes_trend", "minutes_role_ratio",
+    ]
+    volume = [
+        "last5_FGA_mean", "last10_FGA_mean", "season_FGA_mean",
+        "last5_FTA_mean", "last10_FTA_mean", "season_FTA_mean",
+        "last5_TOV_mean", "last10_TOV_mean",
+        "last5_usage_proxy_mean", "last10_usage_proxy_mean", "season_usage_proxy_mean",
+        "last5_usage_proxy_per_minute_mean", "last10_usage_proxy_per_minute_mean",
+        "season_usage_proxy_per_minute_mean",
+    ]
+    cross_stat = [
+        f"last{window}_{stat}_mean"
+        for stat in ("PTS", "REB", "AST")
+        for window in (5, 10)
+    ]
+    target_history = [
+        f"last20_{target}_mean", f"ema_{target}", f"season_{target}_mean",
+    ]
+    # Deduplicate the target's last-5/last-10 columns also listed as cross-stat features.
+    return list(dict.fromkeys(static + role + volume + cross_stat + target_history))
