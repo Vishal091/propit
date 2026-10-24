@@ -251,3 +251,17 @@ Use the same chronological holdout to compare models; lower log loss and Brier s
 Integer total-goals lines treat exact-line results as pushes and exclude them from binary totals metrics.
 The output is only as representative as the imported league/season coverage. Sparse or selected
 historical feeds are not evidence of out-of-sample edge, and current odds are not imported by this tool.
+### Forecast upcoming fixtures
+
+After importing a fixtures/results dataset, generate future match probabilities:
+
+    python -m scripts.predict_soccer --input data/soccer/matches.csv --date-from 2026-10-24 --date-to 2026-11-08
+
+Optionally filter by a provider-specific competition ID:
+
+    python -m scripts.predict_soccer --competition-id openfootball:england:premierleague --date-from 2026-10-24
+
+The command writes predictions/soccer/upcoming.csv. It forecasts scheduled rows in the imported
+data and uses only completed matches with earlier dates. It includes both independent-Poisson and
+experimental Dixon-Coles probabilities, expected goals, data history counts, and a prediction timestamp.
+No bookmaker odds, confirmed lineups, or injury/news feed are included; do not treat this as betting advice.

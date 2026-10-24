@@ -83,3 +83,10 @@ the quality of results depends on the league/season coverage imported.
 Research/educational use only. Probabilities are experimental, not guarantees of accuracy or profit.
 Do not automatically place bets. Never present stale or missing odds as current, and never create a
 probability edge from mismatched or unavailable prices.
+### Generate upcoming forecasts
+
+    python -m scripts.predict_soccer --input data/soccer/matches.csv --date-from 2026-10-24 --date-to 2026-11-08
+
+Optional competition filtering uses the provider competition ID exactly as stored by the importer.
+The CSV output contains both Poisson and experimental Dixon-Coles probabilities plus a generation
+timestamp and historical sample counts. The CLI does not fetch odds, lineups, or injury information.
