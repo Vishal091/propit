@@ -68,6 +68,7 @@ def build_market_implied_comparisons(
     if not math.isfinite(total_goals_line) or total_goals_line < 0:
         raise ValueError("total_goals_line must be finite and non-negative")
 
+    prediction_list = [dict(item) for item in predictions]
     sport_by_league = {value[1]: value[0] for value in TOP_FIVE_SPORTS.values()}
     odds = [dict(item) for item in odds_rows]
     comparisons = []
@@ -75,7 +76,7 @@ def build_market_implied_comparisons(
     matches_h2h = 0
     matches_totals = 0
 
-    for raw in predictions:
+    for raw in prediction_list:
         prediction = dict(raw)
         league = canonical_top_five_league(prediction)
         sport_key = sport_by_league.get(league or "")
@@ -166,7 +167,7 @@ def build_market_implied_comparisons(
     return comparisons, {
         "available": bool(matches_h2h),
         "input_odds_rows": len(odds),
-        "prediction_rows": len(list(predictions)) if not isinstance(predictions, list) else len(predictions),
+        "prediction_rows": len(prediction_list),
         "matched_1x2_predictions": matches_h2h,
         "matched_totals_predictions": matches_totals,
         "unmatched_predictions": no_match,
