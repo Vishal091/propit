@@ -102,3 +102,18 @@ def test_market_implied_baseline_rejects_snapshots_after_kickoff_and_fuzzy_teams
     comparisons, summary = build_market_implied_comparisons([mismatched], odds)
     assert comparisons == []
     assert summary["matched_1x2_predictions"] == 0
+
+
+
+def test_market_baseline_rejects_quote_updates_newer_than_the_snapshot():
+    odds = parse_odds_payload(
+        {"timestamp": "2026-11-01T14:02:00Z", "data": odds_payload()},
+        sport_key="soccer_epl", competition_name="Premier League", snapshot_mode="historical",
+        requested_snapshot_at_utc="2026-11-01T14:02:00Z",
+        retrieved_at_utc="2026-11-01T14:03:00Z",
+    )
+    for quote in odds:
+        quote["market_last_update_utc"] = "2026-11-01T14:03:00Z"
+    comparisons, summary = build_market_implied_comparisons([prediction()], odds)
+    assert comparisons == []
+    assert summary["matched_1x2_predictions"] == 0
