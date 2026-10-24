@@ -12,6 +12,7 @@ import logging
 import re
 import unicodedata
 from pathlib import Path
+from urllib.parse import parse_qs, urlparse
 from typing import Any
 
 import pandas as pd
@@ -264,6 +265,28 @@ def fetch_all(output: Path) -> pd.DataFrame:
             response.raise_for_status()
         except requests.RequestException as exc:
             raise RuntimeError(f"Could not download {target} public prop page: {exc}") from exc
+        requested_url = urlparse(url)
+        final_url = urlparse(response.url)
+        target_slug = {"PTS": "points", "REB": "rebounds", "AST": "assists"}[target]
+        title_soup = BeautifulSoup(response.text, "html.parser")
+        page_title = title_soup.title.get_text(" ", strip=True) if title_soup.title else ""
+        query_text = " ".join(
+            str(value) for values in parse_qs(final_url.query).values() for value in values
+        ).casefold()
+        route_is_target_specific = target_slug in final_url.path.casefold().split("/")
+        query_is_target_specific = target_slug in query_text or target.casefold() in query_text
+        title_is_target_specific = target_slug in page_title.casefold()
+        if (
+            final_url.path.rstrip("/") != requested_url.path.rstrip("/")
+            and not route_is_target_specific
+            and not query_is_target_specific
+            and not title_is_target_specific
+        ):
+            raise RuntimeError(
+                f"{target} source URL redirected to a generic page ({response.url!r}) "
+                f"with title {page_title!r}; refusing to label a generic/default board as {target}."
+            )
+        log.info("resolved %s source URL to %s (%s HTML bytes)", target, response.url, len(response.content))
         try:
             rows = parse_props_html(response.text, target, players)
         except ValueError as exc:
