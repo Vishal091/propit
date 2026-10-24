@@ -70,3 +70,35 @@ def test_parse_card_layout_still_skips_integer_lines():
     rows = parse_props_html(html, "PTS", {normalize_name("Test Guard"): (200, "Test Guard")})
     assert rows == []
 
+def test_parse_bare_positive_american_odds_as_underdog():
+    assert parse_odds_and_book("165") == (165.0, "Underdog")
+    assert parse_odds_and_book("+104") == (104.0, "Underdog")
+    assert parse_odds_and_book("—") == (None, "")
+
+
+def test_parse_flash_odds_public_html_table_with_bare_odds():
+    html = """
+    <html><body><table>
+      <thead><tr><th>Player</th><th>Open</th><th>Line</th><th>Move</th><th>Over</th><th>Under</th><th>Match</th></tr></thead>
+      <tbody>
+        <tr><td>Aaron Wiggins</td><td>9.5</td><td>9.5</td><td>—</td><td>165</td><td>-204</td><td>game</td></tr>
+        <tr><td>Alex Sarr</td><td>13.5</td><td>14.5</td><td>+1</td><td>104</td><td>-128</td><td>game</td></tr>
+        <tr><td>Test Integer</td><td>8.0</td><td>8.0</td><td>—</td><td>105</td><td>-125</td><td>game</td></tr>
+      </tbody>
+    </table></body></html>
+    """
+    players = {
+        normalize_name("Aaron Wiggins"): (11, "Aaron Wiggins"),
+        normalize_name("Alex Sarr"): (22, "Alex Sarr"),
+        normalize_name("Test Integer"): (33, "Test Integer"),
+    }
+    rows = parse_props_html(html, "PTS", players)
+    by_name = {row["player_name"]: row for row in rows}
+    assert set(by_name) == {"Aaron Wiggins", "Alex Sarr"}
+    assert by_name["Aaron Wiggins"]["line"] == 9.5
+    assert by_name["Aaron Wiggins"]["odds_over"] == 165
+    assert by_name["Aaron Wiggins"]["odds_under"] == -204
+    assert by_name["Aaron Wiggins"]["bookmaker"] == "Probetrics public board (over Underdog; under Underdog)"
+    assert by_name["Alex Sarr"]["line"] == 14.5
+    assert by_name["Alex Sarr"]["odds_over"] == 104
+
