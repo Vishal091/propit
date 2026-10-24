@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pandas as pd
 
 DEFAULT_ROOT = Path(__file__).resolve().parents[1]
@@ -147,7 +148,7 @@ def _holdout_quality(frame: pd.DataFrame | None) -> dict[str, Any]:
         for key, column in (("raw", "p_over"), ("calibrated", "calibrated_p_over")):
             p = group[column].clip(1e-6, 1 - 1e-6).to_numpy(dtype=float)
             brier = float(((p - y) ** 2).mean())
-            log_loss = float((-(y * __import__("numpy").log(p) + (1 - y) * __import__("numpy").log(1 - p))).mean())
+            log_loss = float((-(y * np.log(p) + (1 - y) * np.log(1 - p))).mean())
             hit_rate = float(((p >= 0.5) == (y == 1)).mean())
             entry[f"{key}_brier"] = round(brier, 4)
             entry[f"{key}_log_loss"] = round(log_loss, 4)
