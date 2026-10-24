@@ -56,6 +56,7 @@ def test_markdown_report_contains_health_and_activity(tmp_path):
     rendered = render_markdown_report(report)
     assert "# PropIt Operations Report" in rendered
     assert "## Health checks" in rendered
+    assert "## Holdout probability quality" in rendered
     assert "Failed workflows in the last 24 hours" in rendered
 
 
@@ -125,3 +126,20 @@ def test_holdout_quality_withholds_metrics_without_valid_outcomes():
     result = _holdout_quality(frame)
     assert result["available"] is False
     assert result["by_target"] == []
+
+
+
+def test_future_market_timestamp_is_not_reported_as_fresh(tmp_path):
+    (tmp_path / "data").mkdir()
+    (tmp_path / "predictions").mkdir()
+    (tmp_path / "artifacts").mkdir()
+    (tmp_path / "data" / "prop_lines_public.csv").write_text(
+        "player_id,target,line,market_snapshot_at_utc,snapshot_at_utc\n"
+        "12,PTS,20.5,,2026-10-24T12:30:00Z\n",
+        encoding="utf-8",
+    )
+    report = build_health_report(tmp_path, now="2026-10-24T12:00:00Z")
+    market = next(check for check in report["checks"] if check["name"] == "Public market board")
+    assert market["status"] == "WARN"
+    assert "future" in market["detail"].lower()
+    assert market["age_hours"] == -0.5
