@@ -12,6 +12,8 @@ from src.features.build import feature_columns
 from src.model.train import TrainedModel
 
 ARTIFACTS = Path("artifacts")
+_MIN_PROBABILITY = 0.02
+_MAX_PROBABILITY = 0.98
 
 
 @dataclass
@@ -26,6 +28,20 @@ class Prediction:
 
 def _normal_cdf(x: float) -> float:
     return 0.5 * (1.0 + math.erf(x / math.sqrt(2.0)))
+
+
+def _probability_over(line: float, p10: float, p50: float, p90: float, fallback_std: float) -> float:
+    """Estimate P(stat > line) from the row-specific quantile interval.
+
+    This is a distributional approximation, not a calibrated probability. The
+    quantile spread lets uncertainty vary by player/game context instead of
+    applying one global residual standard deviation to every prediction.
+    """
+    spread_std = (p90 - p10) / (2.0 * 1.2815515655446004)
+    scale = spread_std if math.isfinite(spread_std) and spread_std > 1e-6 else fallback_std
+    scale = max(float(scale), 1e-6)
+    raw = 1.0 - _normal_cdf((line - p50) / scale)
+    return float(min(_MAX_PROBABILITY, max(_MIN_PROBABILITY, raw)))
 
 
 def predict_one(
@@ -44,8 +60,7 @@ def predict_one(
     p90 = float(bundle.q90.predict(X)[0])
     p_over: float | None = None
     if line is not None:
-        z = (float(line) - p50) / bundle.residual_std
-        p_over = float(1.0 - _normal_cdf(z))
+        p_over = _probability_over(float(line), p10, p50, p90, float(bundle.residual_std))
     importance = bundle.q50.feature_importances_
     baselines = getattr(bundle, "feature_means", None) or {}
     drivers = []
