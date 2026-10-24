@@ -44,6 +44,7 @@ input[type=date],select{border:1px solid var(--line);border-radius:9px;backgroun
     <button class="nav-btn" data-tab="slate"><span class="nav-icon">⌁</span>Today's slate</button>
     <button class="nav-btn" data-tab="history"><span class="nav-icon">◷</span>History & results</button>
     <button class="nav-btn" data-tab="calibration"><span class="nav-icon">⌗</span>Calibration</button>
+    <button class="nav-btn" data-tab="operations"><span class="nav-icon">⚙</span>Operations</button>
     <div class="side-bottom"><strong>Local-first workspace</strong><p>Your model, market snapshots and history stay on this PC. Only the existing public-data scripts connect to the internet.</p></div>
   </aside>
   <main>
@@ -129,6 +130,34 @@ input[type=date],select{border:1px solid var(--line);border-radius:9px;backgroun
       <div class="footnote">Minimum sample checks are applied separately by stat. Probabilities from the current quantile-spread model are approximate, not calibrated confidence. Historical metrics are not a guarantee of future performance.</div>
     </section>
 
+    <section class="section" id="section-operations">
+      <div class="section-intro">
+        <div><h2>Operations & reliability</h2><p>Local data readiness, report freshness, and auditable workflow history.</p></div>
+        <div class="toolbar">
+          <button class="btn btn-sm" id="ops-refresh-btn">Refresh health ↻</button>
+          <button class="btn btn-sm" id="ops-report-btn">Generate daily report</button>
+          <button class="btn btn-primary" id="backup-btn">Create backup ↗</button>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-head">
+          <div><h2 class="panel-title">System health</h2><p class="panel-subtitle" id="ops-generated-at">Waiting for local health checks.</p></div>
+          <span class="status-pill warn" id="ops-overall">NOT CHECKED</span>
+        </div>
+        <div class="panel-body"><div class="cal-summary">
+          <div class="panel cal-card"><div class="small-label">Checks passing</div><strong id="ops-ok-count">—</strong><p>Checks with no detected issue</p></div>
+          <div class="panel cal-card"><div class="small-label">Warnings</div><strong id="ops-warn-count">—</strong><p>Missing, stale or not-yet-established data</p></div>
+          <div class="panel cal-card"><div class="small-label">Errors</div><strong id="ops-error-count">—</strong><p>Critical local files or schema issues</p></div>
+        </div></div>
+        <div class="table-wrap"><table><thead><tr><th>Component</th><th>Status</th><th>Details</th><th>Age (hours)</th><th>Rows</th></tr></thead><tbody id="ops-checks-table"><tr><td colspan="5" class="empty">Open Operations to inspect data health.</td></tr></tbody></table></div>
+      </div>
+      <div class="panel table-panel">
+        <div class="panel-head"><div><h2 class="panel-title">Workflow audit trail</h2><p class="panel-subtitle">Recent refresh, settlement, calibration, report and backup actions. Failure excerpts are kept for troubleshooting; credentials are not recorded.</p></div><span class="help-text" id="ops-audit-count">No recent events loaded</span></div>
+        <div class="table-wrap"><table><thead><tr><th>Time (UTC)</th><th>Result</th><th>Workflow steps</th><th>Duration</th><th>Details</th></tr></thead><tbody id="ops-audit-table"><tr><td colspan="5" class="empty">No workflow audit events yet.</td></tr></tbody></table></div>
+      </div>
+      <p class="footnote">Generate daily report writes a dated JSON and Markdown summary under reports/operations. Create backup writes a checksum-manifest ZIP under backups/. The backup includes source, essential CSV/JSON data, predictions and model artifacts where present; it excludes .env, the virtual environment, caches and previous backups. This is a local operational monitor, not a proof that source data or model probabilities are correct.</p>
+    </section>
+
     <div id="run-log" class="log-box"><div class="log-top"><span>WORKFLOW ACTIVITY</span><button class="btn btn-quiet btn-sm" id="hide-log">Hide logs</button></div><pre id="log-content" class="log-content"></pre></div>
     <div class="footer">PROPIT LOCAL WORKSPACE · PREDICTIONS ARE EXPERIMENTAL · VERIFY MARKETS INDEPENDENTLY</div>
   </main>
@@ -201,7 +230,7 @@ input[type=date],select{border:1px solid var(--line);border-radius:9px;backgroun
   }
   function setBusy(value, label){
     busy=value;
-    ["refresh-btn","workflow-btn","reload-btn","calibrate-btn"].forEach(function(id){
+    ["refresh-btn","workflow-btn","reload-btn","calibrate-btn","ops-refresh-btn","ops-report-btn","backup-btn"].forEach(function(id){
       if($(id)) $(id).disabled=value;
     });
     document.querySelectorAll("[data-action]").forEach(function(btn){btn.disabled=value;});
@@ -234,10 +263,11 @@ input[type=date],select{border:1px solid var(--line);border-radius:9px;backgroun
     overview:["The slate at a glance","Run your market refresh, inspect candidates, and keep every pregame prediction tied to its eventual result."],
     slate:["Today's slate","Ranked model projections against the available public market snapshot. Every estimate is experimental."],
     history:["History & results","A persistent ledger of what PropIt predicted before a game, plus outcomes after the public box score updates."],
-    calibration:["Calibration & backtest","Validate probabilities using later dates the calibration model did not fit on."]
+    calibration:["Calibration & backtest","Validate probabilities using later dates the calibration model did not fit on."],
+    operations:["Operations & reliability","Monitor local data freshness, model readiness, workflow failures and backup/report state."]
   };
   document.querySelectorAll(".nav-btn").forEach(function(btn){
-    btn.addEventListener("click",function(){var id=btn.dataset.tab;tab(tabData[id][0],tabData[id][1],id); if(id==="slate") loadSlate(); if(id==="history") loadHistory(); if(id==="calibration") loadCalibration();});
+    btn.addEventListener("click",function(){var id=btn.dataset.tab;tab(tabData[id][0],tabData[id][1],id); if(id==="slate") loadSlate(); if(id==="history") loadHistory(); if(id==="calibration") loadCalibration(); if(id==="operations") loadOperations();});
   });
   document.querySelectorAll("[data-go]").forEach(function(btn){
     btn.addEventListener("click",function(){var id=btn.dataset.go;tab(tabData[id][0],tabData[id][1],id);if(id==="slate")loadSlate();if(id==="history")loadHistory();});
@@ -255,6 +285,9 @@ input[type=date],select{border:1px solid var(--line);border-radius:9px;backgroun
   $("refresh-btn").addEventListener("click",function(){doAction("/api/refresh",null,"Refreshing markets and rebuilding predictions…");});
   $("workflow-btn").addEventListener("click",function(){runWorkflow();});
   $("calibrate-btn").addEventListener("click",function(){doAction("/api/calibrate",null,"Evaluating historical probabilities…",true);});
+  $("ops-refresh-btn").addEventListener("click",function(){loadOperations();});
+  $("ops-report-btn").addEventListener("click",function(){doAction("/api/ops-report",null,"Generating daily operations report…");});
+  $("backup-btn").addEventListener("click",function(){doAction("/api/backup",null,"Creating a ZIP backup of source, data and model artifacts…");});
   document.querySelectorAll("[data-action]").forEach(function(btn){
     btn.addEventListener("click",function(){
       var action=btn.dataset.action;
@@ -304,6 +337,7 @@ input[type=date],select{border:1px solid var(--line);border-radius:9px;backgroun
       await loadSlate();
       if(activeTab==="history") await loadHistory();
       if(activeTab==="calibration") await loadCalibration();
+      if(activeTab==="operations") await loadOperations();
       $("connection-label").textContent="LOCAL WORKSPACE";
       $("connection-dot").style.background="var(--lime)";
     }catch(err){showNotice("Could not load dashboard data: "+err.message,"error");$("connection-label").textContent="SERVER ERROR";$("connection-dot").style.background="var(--red)";}
@@ -426,6 +460,42 @@ input[type=date],select{border:1px solid var(--line);border-radius:9px;backgroun
     }catch(err){
       $("cal-table").innerHTML=emptyRow(12,"Could not load calibration",err.message);
       $("reliability-table").innerHTML=emptyRow(7,"Could not load reliability",err.message);
+    }
+  }
+  async function loadOperations(){
+    try{
+      var health=await request("/api/health");
+      var summary=health.summary||{};
+      var overall=String(health.overall||"UNKNOWN").toUpperCase();
+      var pill=$("ops-overall");
+      pill.textContent=overall;
+      pill.className="status-pill "+(overall==="OK"?"good":overall==="ERROR"?"bad":"warn");
+      $("ops-generated-at").textContent="Updated "+stamp(health.generated_at_utc)+" · "+Number(summary.check_count||0)+" checks";
+      $("ops-ok-count").textContent=Number(summary.ok||0);
+      $("ops-warn-count").textContent=Number(summary.warning||0);
+      $("ops-error-count").textContent=Number(summary.errors||0);
+      var checks=health.checks||[];
+      $("ops-checks-table").innerHTML=checks.length?checks.map(function(c){
+        var s=String(c.status||"UNKNOWN").toUpperCase();
+        var cls=s==="OK"?"good":s==="ERROR"?"bad":"warn";
+        var age=num(c.age_hours);
+        return '<tr><td class="player-cell">'+escapeHtml(c.name||"—")+'</td><td><span class="status-pill '+cls+'">'+escapeHtml(s)+'</span></td><td title="'+escapeHtml(c.path||"")+'">'+escapeHtml(c.detail||"")+'</td><td class="mono">'+(age===null?"—":fixed(age,2))+'</td><td class="mono">'+(c.rows===null||c.rows===undefined?"—":escapeHtml(c.rows))+'</td></tr>';
+      }).join(""):emptyRow(5,"No health checks","No check results were returned.");
+      var audit=await request("/api/audit?limit=40");
+      var events=audit.rows||[];
+      $("ops-audit-count").textContent=Number(audit.count||0)+" events shown · "+Number(summary.recent_workflow_failures_24h||0)+" failure(s) in last 24h";
+      $("ops-audit-table").innerHTML=events.length?events.map(function(e){
+        var ok=e.ok===true;
+        var cls=ok?"good":"bad";
+        var stampValue=e.timestamp_utc||e.started_at_utc||"";
+        var steps=(e.steps||[]).map(function(step){return String(step.step||"workflow")+(step.ok?" ✓":" ✕");}).join(" · ")||String(e.event_type||"event");
+        var duration=(e.steps||[]).reduce(function(sum,step){return sum+Number(step.duration_seconds||0);},0);
+        var detail=e.message||((e.steps||[]).filter(function(step){return !step.ok;}).map(function(step){return step.error_excerpt||"step failed";}).join(" · "))||(ok?"Completed":"Failed");
+        return '<tr><td class="mono">'+escapeHtml(stampValue||"—")+'</td><td><span class="status-pill '+cls+'">'+(ok?"SUCCESS":"FAILED")+'</span></td><td>'+escapeHtml(steps)+'</td><td class="mono">'+fixed(duration,2)+'s</td><td>'+escapeHtml(detail)+'</td></tr>';
+      }).join(""):emptyRow(5,"No workflow events yet","Run a refresh, settlement, calibration, report or backup to create an audit record.");
+    }catch(err){
+      $("ops-checks-table").innerHTML=emptyRow(5,"Could not load system health",err.message);
+      $("ops-audit-table").innerHTML=emptyRow(5,"Could not load workflow audit",err.message);
     }
   }
   async function initialize(){
