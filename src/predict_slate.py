@@ -410,6 +410,19 @@ def main() -> None:
     try:
         next_games = get_next_game_map()
         log.info("loaded next scheduled games for %s NBA teams", len(next_games))
+        roster_abbreviations = {
+            str(info.get("team_abbreviation") or "").strip().upper()
+            for info in player_teams.values()
+            if str(info.get("team_abbreviation") or "").strip()
+        }
+        unmatched = sorted(roster_abbreviations - set(next_games))
+        if unmatched:
+            log.warning(
+                "schedule lookup did not match these roster team abbreviations: %s",
+                ", ".join(unmatched),
+            )
+        if not next_games:
+            log.error("schedule lookup returned zero teams; team/date/opponent columns will be blank")
     except Exception as exc:
         log.warning("could not load upcoming NBA schedule; match dates will be blank: %s", exc)
         next_games = {}
