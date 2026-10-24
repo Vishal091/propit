@@ -55,7 +55,7 @@ input[type=date],select{border:1px solid var(--line);border-radius:9px;backgroun
       </div>
       <div class="head-actions">
         <button id="refresh-btn" class="btn">↻ Refresh slate</button>
-        <label class="field-label">NBA game date<input type="date" id="workflow-date"></label>
+        <label class="field-label">Snapshot date<input type="date" id="workflow-date"></label>
         <button id="workflow-btn" class="btn btn-primary">Run pregame workflow ↗</button>
       </div>
     </div>
@@ -71,7 +71,7 @@ input[type=date],select{border:1px solid var(--line);border-radius:9px;backgroun
       <div class="overview-grid">
         <div class="panel">
           <div class="panel-head"><div><h2 class="panel-title">Shortlist preview</h2><p class="panel-subtitle">Best modeled market candidates in the current snapshot</p></div><button class="btn btn-quiet btn-sm" data-go="slate">View full slate →</button></div>
-          <div class="table-wrap"><table><thead><tr><th>Player / stat</th><th>Line</th><th>Side</th><th>Model prob.</th><th>Edge</th><th>EV / unit</th></tr></thead><tbody id="overview-table"><tr><td colspan="6" class="empty">Loading slate…</td></tr></tbody></table></div>
+          <div class="table-wrap"><table><thead><tr><th>Player / stat</th><th>Team</th><th>Match date</th><th>Line</th><th>Side</th><th>Model prob.</th><th>Edge</th><th>EV / unit</th></tr></thead><tbody id="overview-table"><tr><td colspan="8" class="empty">Loading slate…</td></tr></tbody></table></div>
         </div>
         <div class="panel">
           <div class="panel-head"><div><h2 class="panel-title">Workflow status</h2><p class="panel-subtitle">Files and data currently available to PropIt</p></div><span class="status-pill good" id="status-pill">LOCAL</span></div>
@@ -82,7 +82,7 @@ input[type=date],select{border:1px solid var(--line);border-radius:9px;backgroun
               <div class="pipe-step"><div class="pipe-icon">3</div><div class="pipe-copy"><strong><span class="status-light" id="light-history"></span>Pregame history</strong><span id="text-history">Archive a slate before tip-off.</span></div></div>
               <div class="pipe-step"><div class="pipe-icon">4</div><div class="pipe-copy"><strong><span class="status-light" id="light-calibration"></span>Holdout evaluation</strong><span id="text-calibration">Needs a sufficient sample of settled predictions.</span></div></div>
             </div>
-            <div class="action-box"><h3>One-click pregame workflow</h3><p>Refresh public markets → regenerate predictions → archive the exact snapshot for your selected NBA game date. Use it before games begin.</p><button class="btn btn-primary" data-action="workflow">Run full pregame workflow ↗</button></div>
+            <div class="action-box"><h3>One-click pregame workflow</h3><p>Refresh public markets → regenerate predictions → archive one snapshot. Each player is also matched to their team and next scheduled NBA game date where available. Run this before tip-off.</p><button class="btn btn-primary" data-action="workflow">Run full pregame workflow ↗</button></div>
           </div>
         </div>
       </div>
@@ -98,18 +98,18 @@ input[type=date],select{border:1px solid var(--line);border-radius:9px;backgroun
       <div class="section-intro"><div><h2>Today's slate</h2><p>Ranked estimates from your current model and imported markets.</p></div><div class="toolbar"><div class="tabchips"><button class="chip active" data-view="shortlist">Shortlist</button><button class="chip" data-view="all">All markets</button></div><button class="btn btn-sm" data-action="refresh">Refresh & score ↻</button></div></div>
       <div class="panel">
         <div class="panel-head"><div><h2 class="panel-title" id="slate-count-title">Market candidates</h2><p class="panel-subtitle">Probabilities remain experimental until validated against a chronological holdout.</p></div><span class="status-pill warn">RESEARCH ONLY</span></div>
-        <div class="table-wrap"><table><thead><tr><th>Rank</th><th>Player</th><th>Stat</th><th>Line</th><th>Side</th><th>Model prob.</th><th>Market prob.</th><th>Edge</th><th>EV / unit</th><th>Odds O / U</th><th>Data age</th><th>Screen</th></tr></thead><tbody id="slate-table"><tr><td colspan="12" class="empty">Loading…</td></tr></tbody></table></div>
+        <div class="table-wrap"><table><thead><tr><th>Rank</th><th>Player</th><th>Team</th><th>Match date</th><th>Stat</th><th>Line</th><th>Side</th><th>Model prob.</th><th>Market prob.</th><th>Edge</th><th>EV / unit</th><th>Odds O / U</th><th>Data age</th><th>Screen</th></tr></thead><tbody id="slate-table"><tr><td colspan="14" class="empty">Loading…</td></tr></tbody></table></div>
       </div>
       <p class="footnote">Public odds can be stale or unavailable in your region. Verify the exact player, stat line, market prices and game availability before acting. Model edge is not proof of a profitable bet.</p>
     </section>
 
     <section class="section" id="section-history">
-      <div class="section-intro"><div><h2>History & results</h2><p>Archived probabilities linked to their game date and settled stat line.</p></div><div class="toolbar"><select id="history-filter" aria-label="Filter history"><option value="all">All records</option><option value="pending">Pending</option><option value="settled">Settled</option><option value="push">Pushes</option></select><button class="btn btn-sm" data-action="settle">Settle results ↻</button></div></div>
+      <div class="section-intro"><div><h2>History & results</h2><p>Archived probabilities with player team, scheduled match date and settled stat line.</p></div><div class="toolbar"><select id="history-filter" aria-label="Filter history"><option value="all">All records</option><option value="pending">Pending</option><option value="settled">Settled</option><option value="push">Pushes</option></select><button class="btn btn-sm" data-action="settle">Settle results ↻</button></div></div>
       <div class="panel">
         <div class="panel-head"><div><h2 class="panel-title">Prediction ledger</h2><p class="panel-subtitle" id="history-count">This ledger is maintained by the app; no manual CSV editing is needed.</p></div><span class="status-pill" id="history-badge">NO HISTORY</span></div>
-        <div class="table-wrap"><table><thead><tr><th>Game date</th><th>Player</th><th>Stat</th><th>Line</th><th>Model P(over)</th><th>Over odds</th><th>Under odds</th><th>Actual</th><th>Outcome</th><th>Status</th></tr></thead><tbody id="history-table"><tr><td colspan="10" class="empty">No history yet.</td></tr></tbody></table></div>
+        <div class="table-wrap"><table><thead><tr><th>Match date</th><th>Player</th><th>Team</th><th>Stat</th><th>Line</th><th>Model P(over)</th><th>Over odds</th><th>Under odds</th><th>Actual</th><th>Outcome</th><th>Status</th></tr></thead><tbody id="history-table"><tr><td colspan="11" class="empty">No history yet.</td></tr></tbody></table></div>
       </div>
-      <div class="action-box"><h3>Settle a completed game date</h3><p>Select the NBA-local slate date. Settlement uses the free public NBA player-game log. If the feed is not updated yet, the action will report that and leave the history unchanged.</p><div class="action-row"><label class="field-label">Game date<input type="date" id="settle-date"></label><button class="btn btn-primary" data-action="settle">Settle selected date ↗</button></div></div>
+      <div class="action-box"><h3>Settle a completed game date</h3><p>Select the actual NBA-local match date to settle. Each archived prop is associated with its own scheduled match date; settlement uses the public NBA player-game log.</p><div class="action-row"><label class="field-label">Match date<input type="date" id="settle-date"></label><button class="btn btn-primary" data-action="settle">Settle selected date ↗</button></div></div>
       <p class="footnote">DNPs, postponed games and missing public-feed rows remain pending for manual review. Pushes are identified separately and excluded from over/under scoring.</p>
     </section>
 
@@ -160,6 +160,22 @@ input[type=date],select{border:1px solid var(--line);border-radius:9px;backgroun
     if(!value) return "Not available";
     var d=new Date(value); if(isNaN(d.getTime())) return String(value);
     return d.toLocaleString([], {month:"short",day:"numeric",hour:"2-digit",minute:"2-digit"});
+  }
+  function gameDateLabel(value){
+    if(!value) return "—";
+    var match=String(value).trim().match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if(!match) return "—";
+    var d=new Date(Date.UTC(Number(match[1]),Number(match[2])-1,Number(match[3])));
+    return d.toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric",timeZone:"UTC"});
+  }
+  function teamCell(row){
+    var team=String(row.team||row.team_abbreviation||"").trim();
+    if(!team) team="—";
+    var meta=[];
+    if(row.team_abbreviation && row.team_abbreviation!==team) meta.push(String(row.team_abbreviation));
+    if(row.opponent_team) meta.push("vs "+String(row.opponent_team));
+    else if(row.matchup) meta.push(String(row.matchup));
+    return '<span class="player-cell">'+escapeHtml(team)+'</span><div class="muted-cell" style="font-size:10px;margin-top:3px">'+escapeHtml(meta.join(" · "))+'</div>';
   }
   function showNotice(message, type){
     var node=$("notice"); node.textContent=message||""; node.className="notice show "+(type||"info");
@@ -315,9 +331,10 @@ input[type=date],select{border:1px solid var(--line);border-radius:9px;backgroun
     $("overview-table").innerHTML=top.length?top.map(function(r){
       var probability=num(r.selected_model_probability); if(probability===null){probability=num(r.recommended_side==="OVER"?r.model_p_over:r.model_p_under);}
       var ev=r.selected_ev_per_1_unit;
-      return '<tr><td><span class="player-cell">'+escapeHtml(r.player_name)+'</span><div class="muted-cell" style="font-size:10px;margin-top:3px">'+escapeHtml(r.target)+'</div></td><td class="mono">'+fixed(r.line,1)+'</td><td>'+sidePill(r.recommended_side)+'</td><td class="mono">'+pct(probability)+'</td><td class="mono">'+signed(r.selected_model_edge)+'</td><td class="mono">'+fixed(ev,3)+'</td></tr>';
-    }).join(""):emptyRow(6,"No shortlist candidates yet","Refresh and score available markets to populate this table.");
+      return '<tr><td><span class="player-cell">'+escapeHtml(r.player_name)+'</span><div class="muted-cell" style="font-size:10px;margin-top:3px">'+escapeHtml(r.target)+'</div></td><td>'+teamCell(r)+'</td><td class="mono">'+gameDateLabel(r.match_date)+'</td><td class="mono">'+fixed(r.line,1)+'</td><td>'+sidePill(r.recommended_side)+'</td><td class="mono">'+pct(probability)+'</td><td class="mono">'+signed(r.selected_model_edge)+'</td><td class="mono">'+fixed(ev,3)+'</td></tr>';
+    }).join(""):emptyRow(8,"No shortlist candidates yet","Refresh and score available markets to populate this table.");
   }
+
   async function loadSlate(){
     try{
       var data=await request("/api/slate?view="+encodeURIComponent(slateView));
@@ -329,12 +346,12 @@ input[type=date],select{border:1px solid var(--line);border-radius:9px;backgroun
     }catch(err){$("slate-table").innerHTML=emptyRow(12,"Could not load slate",err.message);}
   }
   function renderSlate(rows){
-    if(!rows.length){$("slate-table").innerHTML=emptyRow(12,slateView==="shortlist"?"No qualifying candidates":"No scored markets","Run Refresh Slate after confirming the model artifacts are available.");return;}
+    if(!rows.length){$("slate-table").innerHTML=emptyRow(14,slateView==="shortlist"?"No qualifying candidates":"No scored markets","Run Refresh Slate after confirming the model artifacts are available.");return;}
     $("slate-table").innerHTML=rows.map(function(r,i){
       var prob=num(r.selected_model_probability);
       if(prob===null) prob=num(String(r.recommended_side).toUpperCase()==="UNDER"?r.model_p_under:r.model_p_over);
       if(prob===null) prob=num(r.p_over);
-      return '<tr><td class="mono">'+escapeHtml(r.rank||i+1)+'</td><td><span class="player-cell">'+escapeHtml(r.player_name)+'</span><div class="muted-cell" style="font-size:10px;margin-top:3px">ID '+escapeHtml(r.player_id)+'</div></td><td>'+targetPill(r.target)+'</td><td class="mono">'+fixed(r.line,1)+'</td><td>'+sidePill(r.recommended_side)+'</td><td class="mono">'+pct(prob)+'</td><td class="mono">'+pct(r.selected_market_no_vig_probability)+'</td><td class="mono">'+signed(r.selected_model_edge)+'</td><td class="mono">'+fixed(r.selected_ev_per_1_unit,3)+'</td><td class="mono">'+money(r.odds_over_american)+' / '+money(r.odds_under_american)+'</td><td class="mono">'+(num(r.data_age_days)===null?"—":escapeHtml(r.data_age_days)+"d")+'</td><td><span class="status-pill '+(r.shortlist_status==="SHORTLIST_CANDIDATE"?"good":"warn")+'">'+escapeHtml(r.shortlist_status||"—")+'</span></td></tr>';
+      return '<tr><td class="mono">'+escapeHtml(r.rank||i+1)+'</td><td><span class="player-cell">'+escapeHtml(r.player_name)+'</span><div class="muted-cell" style="font-size:10px;margin-top:3px">ID '+escapeHtml(r.player_id)+'</div></td><td>'+teamCell(r)+'</td><td class="mono">'+gameDateLabel(r.match_date)+'</td><td>'+targetPill(r.target)+'</td><td class="mono">'+fixed(r.line,1)+'</td><td>'+sidePill(r.recommended_side)+'</td><td class="mono">'+pct(prob)+'</td><td class="mono">'+pct(r.selected_market_no_vig_probability)+'</td><td class="mono">'+signed(r.selected_model_edge)+'</td><td class="mono">'+fixed(r.selected_ev_per_1_unit,3)+'</td><td class="mono">'+money(r.odds_over_american)+' / '+money(r.odds_under_american)+'</td><td class="mono">'+(num(r.data_age_days)===null?"—":escapeHtml(r.data_age_days)+"d")+'</td><td><span class="status-pill '+(r.shortlist_status==="SHORTLIST_CANDIDATE"?"good":"warn")+'">'+escapeHtml(r.shortlist_status||"—")+'</span></td></tr>';
     }).join("");
   }
   async function loadHistory(){
@@ -349,14 +366,15 @@ input[type=date],select{border:1px solid var(--line);border-radius:9px;backgroun
     }catch(err){$("history-table").innerHTML=emptyRow(10,"Could not load history",err.message);}
   }
   function renderHistory(rows){
-    if(!rows.length){$("history-table").innerHTML=emptyRow(10,"No records in this view","Run the pregame workflow before a game to start the ledger.");return;}
+    if(!rows.length){$("history-table").innerHTML=emptyRow(11,"No records in this view","Run the pregame workflow before a game to start the ledger.");return;}
     $("history-table").innerHTML=rows.map(function(r){
       var actual=r.actual_stat===null||r.actual_stat===undefined||r.actual_stat===""?"—":fixed(r.actual_stat,1);
       var ov=num(r.actual_over);
       var outcome=ov===1?'<span class="status-pill good">OVER</span>':ov===0?'<span class="status-pill bad">UNDER</span>':(String(r.settlement_status).toUpperCase()==="PUSH"?'<span class="status-pill warn">PUSH</span>':'—');
       var stat=String(r.settlement_status||"PENDING").toUpperCase();
       var cl=stat==="SETTLED"?"good":stat==="PUSH"?"warn":"";
-      return '<tr><td class="mono">'+escapeHtml(r.game_date||"—")+'</td><td><span class="player-cell">'+escapeHtml(r.player_name||"—")+'</span><div class="muted-cell" style="font-size:10px;margin-top:3px">ID '+escapeHtml(r.player_id||"—")+'</div></td><td>'+targetPill(r.target)+'</td><td class="mono">'+fixed(r.line,1)+'</td><td class="mono">'+pct(r.p_over)+'</td><td class="mono">'+money(r.odds_over_american)+'</td><td class="mono">'+money(r.odds_under_american)+'</td><td class="mono">'+actual+'</td><td>'+outcome+'</td><td><span class="status-pill '+cl+'">'+escapeHtml(stat)+'</span></td></tr>';
+      var matchDate=r.match_date||r.game_date;
+      return '<tr><td class="mono">'+gameDateLabel(matchDate)+'</td><td><span class="player-cell">'+escapeHtml(r.player_name||"—")+'</span><div class="muted-cell" style="font-size:10px;margin-top:3px">ID '+escapeHtml(r.player_id||"—")+'</div></td><td>'+teamCell(r)+'</td><td>'+targetPill(r.target)+'</td><td class="mono">'+fixed(r.line,1)+'</td><td class="mono">'+pct(r.p_over)+'</td><td class="mono">'+money(r.odds_over_american)+'</td><td class="mono">'+money(r.odds_under_american)+'</td><td class="mono">'+actual+'</td><td>'+outcome+'</td><td><span class="status-pill '+cl+'">'+escapeHtml(stat)+'</span></td></tr>';
     }).join("");
   }
   async function loadCalibration(){
