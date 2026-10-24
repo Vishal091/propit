@@ -37,11 +37,11 @@ The full estimate table is written to predictions/latest.csv. When no prop line 
 
 ## Import a public prop board and rank candidates
 
-A best-effort HTML importer tries to read Points, Rebounds, and Assists pages from a public webpage. It is not an official API and can break if the source changes markup or blocks requests.
+A best-effort HTML importer reads the public Flash Odds pages for Points, Rebounds, and Assists. These are Underdog lines/prices, not an aggregate across books and not an official API. The source can change its markup or block requests.
 
     .\.venv\Scripts\python.exe -m scripts.fetch_public_props
 
-This writes data/prop_lines_public.csv. The importer first tries ordinary HTML, then falls back to headless Chrome for the JavaScript-rendered board. The importer may need to render the public board if its HTML is only a JavaScript app shell. Google Chrome must be installed; Selenium Manager attempts to obtain a matching driver automatically. Then score available markets and print up to ten candidates:
+This writes data/prop_lines_public.csv. The importer first tries the server-rendered public HTML. It falls back to headless Chrome only if a future page version requires JavaScript rendering. Google Chrome must be installed if that fallback is needed; Selenium Manager attempts to obtain a matching driver automatically. Positive prices may appear without a plus sign on the source page (for example, 165 means +165). Then score available markets and print up to ten candidates:
 
     .\.venv\Scripts\python.exe -m src.predict_slate --lines data\prop_lines_public.csv --top 10
 
@@ -49,7 +49,7 @@ Output files:
 - predictions/latest.csv — full scored market/audit table
 - predictions/shortlist.csv — candidates that pass the configured screens; these are not verified bets
 
-If the importer errors or finds zero markets, inspect the logs. Do not interpret missing data as a pick. Prices may be stale, US-market-specific, or unavailable in your region. Check actual player/market IDs, lines and both side prices before using any row.
+If the importer errors or finds zero markets, inspect the logs. Do not interpret missing data as a pick. Underdog prices may be stale or unavailable in your region. Check actual player/market IDs, lines and both side prices before using any row.
 
 ## Run the local dashboard
 
