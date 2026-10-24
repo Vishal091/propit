@@ -109,7 +109,7 @@ def get_league_game_log(season: str) -> pd.DataFrame:
 
 
 def get_active_players() -> pd.DataFrame:
-    """Return players marked active on NBA's public all-players endpoint."""
+    """Return active NBA players and current team fields when the endpoint supplies them."""
     from nba_api.stats.endpoints import commonallplayers
     df = _cached_call(
         commonallplayers.CommonAllPlayers,
@@ -121,10 +121,24 @@ def get_active_players() -> pd.DataFrame:
     required = {"PERSON_ID", "DISPLAY_FIRST_LAST", "ROSTERSTATUS"}
     if not required.issubset(df.columns):
         raise RuntimeError("CommonAllPlayers response is missing roster fields")
+
+    # Keep optional team metadata when available. Some NBA endpoint versions
+    # omit team fields, so callers must still support a game-log fallback.
+    team_columns = [
+        column for column in (
+            "TEAM_ID", "TEAM_ABBREVIATION", "TEAM_NAME", "TEAM_CITY"
+        ) if column in df.columns
+    ]
+    columns = ["PERSON_ID", "DISPLAY_FIRST_LAST", *team_columns]
     status = pd.to_numeric(df["ROSTERSTATUS"], errors="coerce")
-    active = df.loc[status.eq(1), ["PERSON_ID", "DISPLAY_FIRST_LAST"]].copy()
+    active = df.loc[status.eq(1), columns].copy()
     active = active.rename(columns={"PERSON_ID": "PLAYER_ID", "DISPLAY_FIRST_LAST": "PLAYER_NAME"})
     active["PLAYER_ID"] = pd.to_numeric(active["PLAYER_ID"], errors="coerce")
+    if "TEAM_ID" in active.columns:
+        active["TEAM_ID"] = pd.to_numeric(active["TEAM_ID"], errors="coerce")
+    for column in ("TEAM_ABBREVIATION", "TEAM_NAME", "TEAM_CITY"):
+        if column in active.columns:
+            active[column] = active[column].fillna("").astype(str).str.strip()
     return active.dropna(subset=["PLAYER_ID"]).drop_duplicates("PLAYER_ID").reset_index(drop=True)
 
 
