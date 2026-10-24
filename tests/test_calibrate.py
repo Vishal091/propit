@@ -76,3 +76,32 @@ def test_reliability_returns_json_friendly_numeric_buckets():
     assert int(buckets["count"].sum()) == len(frame)
     assert buckets["bin_lower"].between(0, 1).all()
     assert buckets["bin_upper"].between(0, 1).all()
+
+
+
+def test_evaluate_group_keeps_a_fixed_holdout_start_as_new_dates_arrive():
+    from scripts.calibrate import evaluate_group
+
+    dates = pd.date_range("2026-01-01", periods=8, freq="D")
+    frame = pd.DataFrame({
+        "game_date": [day for day in dates for _ in range(10)],
+        "target": ["PTS"] * (len(dates) * 10),
+        "p_over": [0.25, 0.75] * (len(dates) * 5),
+        "actual_over": [0, 1] * (len(dates) * 5),
+    })
+    first = evaluate_group(frame, "PTS", holdout_start="2026-01-06")
+    assert first["holdout_start"] == "2026-01-06"
+    assert first["calibration_train_end"] == "2026-01-05"
+    assert first["train_rows"] == 50
+    assert first["holdout_rows"] == 30
+
+    extra = pd.DataFrame({
+        "game_date": [pd.Timestamp("2026-01-09")] * 10,
+        "target": ["PTS"] * 10,
+        "p_over": [0.25, 0.75] * 5,
+        "actual_over": [0, 1] * 5,
+    })
+    second = evaluate_group(pd.concat([frame, extra], ignore_index=True), "PTS", holdout_start="2026-01-06")
+    assert second["holdout_start"] == "2026-01-06"
+    assert second["train_rows"] == 50
+    assert second["holdout_rows"] == 40
