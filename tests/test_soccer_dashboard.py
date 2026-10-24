@@ -176,6 +176,11 @@ def test_soccer_dashboard_contains_navigation_and_data_controls():
         'id="soccer-backtest-btn"',
         'id="soccer-metrics-table"',
         'data-soccer-view="forecasts"',
+        'id="soccer-picks-table"',
+        'id="soccer-calibration-table"',
+        'id="soccer-reliability-table"',
+        'Best picks · Top 5 European leagues',
+        'async function loadSoccerPicks',
     ):
         assert text in html
 
