@@ -91,3 +91,37 @@ def test_backup_uses_allowlist_and_manifest_checksums(tmp_path):
         manifest = json.loads(archive.read("manifest.json"))
         assert manifest["files_count"] == result["files_count"]
         assert any(item["path"] == "data/prediction_history.csv" and item["sha256"] for item in manifest["files"])
+
+
+
+def test_holdout_quality_reports_raw_and_calibrated_metrics_by_stat(tmp_path):
+    from src.operations import _holdout_quality
+
+    frame = pd.DataFrame({
+        "target": ["PTS", "PTS", "REB", "REB"],
+        "actual_over": [1, 0, 1, 0],
+        "p_over": [0.8, 0.3, 0.55, 0.7],
+        "calibrated_p_over": [0.75, 0.25, 0.6, 0.4],
+    })
+    result = _holdout_quality(frame)
+    assert result["available"] is True
+    points = next(row for row in result["by_target"] if row["target"] == "PTS")
+    assert points["n"] == 2
+    assert points["raw_brier"] == 0.065
+    assert points["calibrated_brier"] == 0.0625
+    assert points["raw_hit_rate"] == 1.0
+    assert "chronological holdout" in result["note"]
+
+
+def test_holdout_quality_withholds_metrics_without_valid_outcomes():
+    from src.operations import _holdout_quality
+
+    frame = pd.DataFrame({
+        "target": ["PTS"],
+        "actual_over": [None],
+        "p_over": [0.7],
+        "calibrated_p_over": [0.65],
+    })
+    result = _holdout_quality(frame)
+    assert result["available"] is False
+    assert result["by_target"] == []
