@@ -178,3 +178,16 @@ def test_soccer_dashboard_contains_navigation_and_data_controls():
         'data-soccer-view="forecasts"',
     ):
         assert text in html
+
+@pytest.mark.parametrize(
+    "start,end",
+    [("bad-date", None), ("2026-11-01", "2026-10-01")],
+)
+def test_soccer_forecast_endpoint_returns_http_error_for_invalid_date_filter(tmp_path, monkeypatch, start, end):
+    patch_soccer_paths(monkeypatch, tmp_path)
+    write_csv(dashboard.SOCCER_UPCOMING, [
+        {"match_date": "2026-10-25", "competition_id": "epl", "home_team": "Arsenal", "away_team": "Liverpool"}
+    ])
+    with pytest.raises(HTTPException) as error:
+        dashboard.api_soccer_forecasts(date_from=start, date_to=end, competition_id=None, limit=50)
+    assert error.value.status_code == 400
