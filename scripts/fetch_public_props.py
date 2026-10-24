@@ -1,9 +1,10 @@
-"""Best-effort, API-key-free importer for the public Flash Odds NBA prop tables.
+"""Best-effort, API-key-free importer for public Flash Odds NBA prop tables.
 
-The public pages list lines/prices captured from Underdog. This is HTML scraping,
-not an official API or an aggregate across bookmakers. Source structure, prices,
-coverage, and access are not guaranteed. Verify line, prices, and availability.
-Integer lines are skipped because this model does not estimate push probability.
+This scrapes HTML, preserves side-specific sportsbook labels when shown, and
+treats bare unlabeled prices as Underdog. It is not an official API and does not
+guarantee complete multi-book coverage. Successful imports are timestamped and
+appended to a local market-history ledger. Integer lines are skipped because
+the prediction model does not estimate push probability.
 """
 from __future__ import annotations
 
@@ -25,8 +26,8 @@ log = logging.getLogger("fetch_public_props")
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 
 PAGES = {
-    # Flash Odds publishes server-rendered public tables. These lines/prices
-    # are captured from Underdog, not an aggregate across books.
+    # Flash Odds exposes a public prop board. The parser preserves book labels
+    # where shown and does not assume the page is a complete multi-book market.
     "PTS": "https://flashodds.live/nba/props/points",
     "REB": "https://flashodds.live/nba/props/rebounds",
     "AST": "https://flashodds.live/nba/props/assists",
