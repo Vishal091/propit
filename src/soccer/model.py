@@ -61,7 +61,12 @@ def completed_matches(rows: Iterable[Any], competition_id: str | None = None,
         if home_score is None or away_score is None or not home or not away:
             continue
         selected.append({
-            "competition_id": comp, "match_date": match_date.isoformat(),
+            "provider": str(_get(row, "provider", "") or ""),
+            "competition_id": comp,
+            "competition_name": str(_get(row, "competition_name", "") or ""),
+            "season_id": str(_get(row, "season_id", "") or ""),
+            "season_name": str(_get(row, "season_name", "") or ""),
+            "match_date": match_date.isoformat(),
             "home_team": home, "away_team": away,
             "home_score": home_score, "away_score": away_score,
             "match_id": str(_get(row, "match_id", "") or ""),
