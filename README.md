@@ -1,6 +1,6 @@
-# PropIt — Free NBA Player Prop Research
+# PropIt — NBA Player Props + Soccer Match Analytics
 
-PropIt is a local-first NBA player-stat projection and market-comparison project. It trains points, rebounds, and assists models over league-wide player-game data, then can rank supplied markets into a shortlist.
+PropIt is a local-first sports analytics research project. Its NBA module estimates player props; its separate soccer module imports fixtures/results, estimates expected goals, generates match probabilities, and evaluates models chronologically. Soccer work is isolated from the NBA pipeline.
 
 Research/education only. Predictions and probability estimates are experimental, not guarantees of accuracy or profit. Public prop prices can be delayed, unavailable in your region, or tied to US sportsbooks; verify them independently.
 
@@ -70,6 +70,39 @@ The slate shows the status and freshness gate. Fresh `Available`/`Probable` repo
     .\.venv\Scripts\python.exe -m src.predict_slate --lines data\prop_lines_public.csv --require-verified-availability
 
 The flag affects shortlist eligibility, not the all-markets audit output. This is an operator-maintained safeguard, **not** an automatic injury feed; confirm status close to tip-off because the official report can update during the day.
+
+## Soccer analytics: top-five European leagues
+
+The Soccer analytics tab supports historical score imports and future fixture forecasts for the English Premier League, Spain's La Liga, Germany's Bundesliga, Italy's Serie A and France's Ligue 1. Use the import controls to load the league and season(s), then generate forecasts for the date window shown in the dashboard.
+
+**Best Picks** ranks one strongest modeled market per fixture across home win, draw, away win, and the configured total-goals over/under line. The default dashboard gate requires at least 8 prior competition matches and a model probability of at least 52%; the ranking score also discounts forecasts supported by thinner history. Only the five named domestic leagues are eligible. The screen uses independent-Poisson probabilities by default; the Dixon-Coles low-score correction is still experimental and its parameter is not fitted.
+
+The calibration panel reads chronological rolling-origin predictions from predictions/soccer/backtest.csv and reports top-outcome reliability buckets plus expected calibration error. It requires at least 30 predictions per model before displaying the sample gate as met. Calibration is descriptive: it does not fit a corrected probability transformation or guarantee future performance.
+
+Best Picks can optionally compare the model with timestamped, same-book de-vigged prices imported from The Odds API. **This improves evidence but does not make the model calibrated or profitable**. A model edge / expected-value estimate appears only when fresh, exact-team, exact-market quotes from before kickoff match the fixture. Unmatched, stale, mismatched-line, in-play and post-kickoff prices are excluded. Confirm current market availability, price and local rules before using any displayed comparison. Confirmed lineups, injuries and suspensions are still not integrated because the project has no approved historical pre-match snapshot source for them.
+
+### Optional time-stamped bookmaker odds (The Odds API)
+
+The importer uses [The Odds API v4](https://the-odds-api.com/liveapi/guides/v4/index.html). Its terms allow derived analytics subject to its current terms, but do not treat this as permission to redistribute a raw odds feed; see the [provider terms](https://the-odds-api.com/terms-and-conditions.html). Availability depends on your subscription and region. Historical odds require an eligible paid plan.
+
+Set your key in the same PowerShell session before starting the dashboard:
+
+    $env:THE_ODDS_API_KEY = "your-api-key"
+    .\.venv\Scripts\python.exe -m src.dashboard
+
+Alternatively, add `THE_ODDS_API_KEY=your-api-key` to the root `.env` file (already ignored by git). Never commit the key, screenshot it, or paste it into issues/PRs. The dashboard checks for the key without displaying it and does not fetch odds automatically on page load.
+
+In Soccer analytics, click **Import live odds · Top 5**. This requests 1X2 and totals markets for five leagues in UK + Europe regions; estimated maximum usage is about 20 credits per run, though empty responses may cost less. The provider charges live requests by market and region; check its documentation and your account's quota first.
+
+For historical evaluation, select a timezone-aware UTC timestamp such as `2026-10-24T14:00:00Z`, tick the historical cost acknowledgment, and click **Import historical 1X2 snapshot**. The dashboard intentionally limits this to one market and one region across five leagues (about 50 credits, though actual usage can be lower), and only runs it after explicit confirmation. Historical queries can return the nearest available prior snapshot, so the report records the actual snapshot time, requested time and each bookmaker market update time.
+
+Odds are stored locally in `data/soccer/odds_snapshots.csv` with market and snapshot timestamps; exact duplicates are skipped but distinct observations are retained. Never assume current prices existed in the past: the market-implied backtest uses only exact-team, exact-league markets with a snapshot and quote update no later than kickoff, within the configured pre-kickoff window. Unmatched historical games are excluded rather than filled with live prices.
+
+To run the chronological backtest, import historical results and use the Soccer tab's **Run backtest** action or:
+
+    .\.venv\Scripts\python.exe -m scripts.backtest_soccer --input data\soccer\matches.csv --min-history 30
+
+The backtest reports independent Poisson, experimental Dixon-Coles and a league-average baseline overall, by competition and by season. When `data/soccer/odds_snapshots.csv` contains suitable historical snapshots, it also adds the market-implied benchmark and writes `predictions/soccer/market_comparison.csv`. Current live odds are intentionally not substituted into historical backtests. A benchmark based on a smaller subset of matches should not be compared as though all models shared the same sample.
 
 ## Run the local dashboard
 
@@ -185,3 +218,100 @@ The tests cover player-isolated rolling features, minutes/usage feature timing, 
 - Current roster status is not an official injury or game-availability feed.
 - Integer prop lines are skipped by the importer because the current EV model does not account for push probability.
 - No automatic bet placement is implemented.
+
+## Soccer data foundation (new)
+
+Soccer development is isolated in `src/soccer`; the existing NBA pipeline is unchanged. The first
+data adapters use two complementary sources:
+
+- **StatsBomb Open Data** provides a curated selection of historic competition-seasons with match IDs,
+  final scores, events, and shot-level xG. Coverage is selective, not a complete live fixtures or odds
+  service. Attribute StatsBomb and follow its published terms when sharing insights:
+  https://github.com/statsbomb/open-data
+- **OpenFootball** provides public-domain fixture/result text datasets for supported leagues. It does
+  not provide xG or odds in this importer. Kickoff times remain source-local because a timezone is not
+  consistently supplied: PropIt does not guess a UTC kickoff.
+- Football-Data.co.uk was reviewed but not wired to automated ingestion because its published terms
+  restrict free datasets to private individuals and prohibit commercial use and automated scraping/AI
+  training products. Revisit only if the applicable terms or written permissions change.
+
+### Import competitions and matches
+
+Install the existing requirements first, then list the curated StatsBomb competition-season IDs:
+
+    python -m scripts.import_soccer_data --provider statsbomb --list-competitions --search Premier
+
+Import historical Premier League 2015/16 or Bundesliga 2023/24 match data including team shots,
+shots on target, and xG derived from shot events:
+
+    python -m scripts.import_soccer_data --provider statsbomb --competition-id 2 --season-id 27 --include-xg
+    python -m scripts.import_soccer_data --provider statsbomb --competition-id 9 --season-id 281 --include-xg
+
+Import broader fixture/results files from OpenFootball:
+
+    python -m scripts.import_soccer_data --provider openfootball --league england --season 2026-27
+
+For a small test before pulling all event files, add `--limit 3`. Match records merge by provider and
+match ID into `data/soccer/matches.csv`; downloaded HTTP responses are cached under
+`.cache/soccer/`. Rows retain source URL, source update metadata when provided, retrieval time,
+observation time, and cache freshness. Missing/partial xG remains null with an explicit status.
+The importers do not fetch sportsbook odds, place bets, or claim model calibration.
+
+Data source documentation:
+- StatsBomb format and attribution: https://github.com/statsbomb/open-data
+- OpenFootball public-domain data: https://github.com/openfootball/england
+- Phase plan: [docs/SOCCER_ROADMAP.md](docs/SOCCER_ROADMAP.md)
+## Soccer goal model and chronological backtest
+
+The soccer model uses historical goals to estimate competition-level home/away scoring rates,
+venue-specific team attack and defensive weakness, shrinkage towards a weak prior, and time decay.
+It forecasts expected home/away goals, home/draw/away win probabilities and totals over/under.
+Training samples must be completed matches in the same competition; predictions strictly exclude
+same-day and future results. A configurable lookback prevents old matches from dominating.
+
+Run a strict-date rolling-origin backtest:
+
+    python -m scripts.backtest_soccer --input data/soccer/matches.csv --min-history 30
+
+Outputs:
+
+- predictions/soccer/backtest.csv: per-match predictions, expected goals, actual results, training counts, and both model probabilities.
+- predictions/soccer/backtest_metrics.json: 1X2 log loss, multiclass Brier score, accuracy, goal-rate MAE, and totals metrics.
+
+The comparison includes an independent-Poisson baseline and an experimental Dixon-Coles low-score
+correction. The default rho is a supplied exploratory value, not fitted from data or assumed optimal.
+Use the same chronological holdout to compare models; lower log loss and Brier score are better.
+Integer total-goals lines treat exact-line results as pushes and exclude them from binary totals metrics.
+The output is only as representative as the imported league/season coverage. Sparse or selected
+historical feeds are not evidence of out-of-sample edge, and current odds are not imported by this tool.
+### Forecast upcoming fixtures
+
+After importing a fixtures/results dataset, generate future match probabilities:
+
+    python -m scripts.predict_soccer --input data/soccer/matches.csv --date-from 2026-10-24 --date-to 2026-11-08
+
+Optionally filter by a provider-specific competition ID:
+
+    python -m scripts.predict_soccer --competition-id openfootball:england:premierleague --date-from 2026-10-24
+
+The command writes predictions/soccer/upcoming.csv. It forecasts scheduled rows in the imported
+data and uses only completed matches with earlier dates. It includes both independent-Poisson and
+experimental Dixon-Coles probabilities, expected goals, data history counts, and a prediction timestamp.
+No bookmaker odds, confirmed lineups, or injury/news feed are included; do not treat this as betting advice.
+## Soccer dashboard
+
+Run the existing local dashboard:
+
+    .\\.venv\\Scripts\\python.exe -m src.dashboard
+
+Open http://127.0.0.1:8766 and select **Soccer analytics** in the sidebar. This view is separate from the NBA slate/history workflows and can:
+
+- Show imported fixtures, scored matches, saved forecasts, and the last backtest sample.
+- Load the StatsBomb competition/season catalog on demand, or import OpenFootball league fixtures/results.
+- Generate upcoming-fixture probabilities for a selected date range and competition.
+- Run the chronological Poisson vs Dixon-Coles backtest and display log loss, Brier score, accuracy and expected-goal error.
+- Filter fixtures/results and forecasts by date and competition.
+
+Use the **Import soccer data** controls to populate the dataset, then **Generate forecasts** or **Run backtest**. Network access happens only when the user requests the catalog or an import; ordinary dashboard page loads read local files. Long season/event imports can take time, particularly when shot-level xG is selected.
+
+The soccer APIs are local workspace endpoints under `/api/soccer/*`. Imported records live at `data/soccer/matches.csv`; forecast and backtest files live under `predictions/soccer/`. The dashboard does not currently import bookmaker odds, confirmed lineups or injuries and does not place bets.

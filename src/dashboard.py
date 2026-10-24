@@ -5,6 +5,7 @@ The server binds to loopback only and executes only fixed project commands.
 """
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
@@ -14,11 +15,13 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from src.operations import append_audit_event, build_health_report, read_audit_events
+from src.soccer.insights import attach_market_odds, build_best_picks, build_calibration_report, canonical_top_five_league
+from src.soccer.odds import OddsProviderError, get_api_key, read_odds_snapshots
 
 ROOT = Path(__file__).resolve().parents[1]
 DATA = ROOT / "data"
@@ -28,6 +31,12 @@ LATEST = PREDICTIONS / "latest.csv"
 SHORTLIST = PREDICTIONS / "shortlist.csv"
 HOLDOUT = PREDICTIONS / "backtest_holdout.csv"
 PUBLIC_LINES = DATA / "prop_lines_public.csv"
+SOCCER_DATA = DATA / "soccer"
+SOCCER_MATCHES = SOCCER_DATA / "matches.csv"
+SOCCER_UPCOMING = PREDICTIONS / "soccer" / "upcoming.csv"
+SOCCER_BACKTEST = PREDICTIONS / "soccer" / "backtest.csv"
+SOCCER_METRICS = PREDICTIONS / "soccer" / "backtest_metrics.json"
+SOCCER_ODDS = SOCCER_DATA / "odds_snapshots.csv"
 HTML_FILE = Path(__file__).with_name("dashboard.html")
 
 app = FastAPI(title="PropIt Local Dashboard", version="1.0.0")
@@ -35,6 +44,46 @@ app = FastAPI(title="PropIt Local Dashboard", version="1.0.0")
 
 class GameDateRequest(BaseModel):
     game_date: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+
+
+class SoccerImportRequest(BaseModel):
+    provider: str = Field(default="openfootball", pattern=r"^(statsbomb|openfootball)$")
+    league: str = Field(default="england", pattern=r"^(england|germany|spain|italy|france)$")
+    season: str = Field(default="2026-27", pattern=r"^\d{4}[-/]\d{2,4}$")
+    competition_id: str | None = Field(default=None, pattern=r"^\d+$")
+    season_id: str | None = Field(default=None, pattern=r"^\d+$")
+    include_xg: bool = False
+    limit: int | None = Field(default=None, ge=1, le=1000)
+
+
+class SoccerForecastRequest(BaseModel):
+    date_from: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+    date_to: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$")
+    competition_id: str | None = Field(default=None, max_length=160)
+    total_goals_line: float = Field(default=2.5, ge=0, le=15)
+    prior_games: float = Field(default=5.0, gt=0, le=1000)
+    half_life_days: float = Field(default=365.0, gt=0, le=10000)
+    lookback_days: int = Field(default=730, ge=1, le=10000)
+    dixon_coles_rho: float = Field(default=-0.05, ge=-0.5, le=0.5)
+
+
+class SoccerBacktestRequest(BaseModel):
+    competition_id: str | None = Field(default=None, max_length=160)
+    min_history: int = Field(default=30, ge=0, le=100000)
+    prior_games: float = Field(default=5.0, gt=0, le=1000)
+    half_life_days: float = Field(default=365.0, gt=0, le=10000)
+    lookback_days: int = Field(default=730, ge=1, le=10000)
+    total_goals_line: float = Field(default=2.5, ge=0, le=15)
+    dixon_coles_rho: float = Field(default=-0.05, ge=-0.5, le=0.5)
+
+class SoccerOddsImportRequest(BaseModel):
+    mode: str = Field(default="live", pattern=r"^(live|historical)$")
+    league: str = Field(default="all", pattern=r"^(all|epl|la_liga|bundesliga|serie_a|ligue_1)$")
+    regions: str = Field(default="uk,eu", pattern=r"^(uk|eu|uk,eu|eu,uk)$")
+    markets: str = Field(default="h2h,totals", pattern=r"^(h2h|totals|h2h,totals|totals,h2h)$")
+    historical_date: str | None = Field(default=None, max_length=40)
+    confirm_historical_cost: bool = False
+
 
 
 def _validate_game_date(value: str) -> str:
@@ -205,6 +254,377 @@ def _state() -> dict[str, Any]:
 @app.get("/")
 def dashboard() -> FileResponse:
     return FileResponse(HTML_FILE)
+
+
+def _soccer_competitions(matches: pd.DataFrame) -> list[dict[str, Any]]:
+    if matches.empty or "competition_id" not in matches.columns:
+        return []
+    columns = [column for column in ("provider", "competition_id", "competition_name", "season_id", "season_name") if column in matches.columns]
+    frame = matches[columns].fillna("").drop_duplicates()
+    rows = _records(frame)
+    counts = matches.groupby("competition_id", dropna=False).size().to_dict()
+    for row in rows:
+        row["match_count"] = int(counts.get(row.get("competition_id", ""), 0))
+    return sorted(rows, key=lambda row: (
+        str(row.get("competition_name", "")).casefold(),
+        str(row.get("season_name", "")).casefold(),
+        str(row.get("provider", "")).casefold(),
+    ))
+
+
+def _soccer_odds_state() -> dict[str, Any]:
+    frame = _read_csv(SOCCER_ODDS)
+    snapshots = pd.to_datetime(frame.get("snapshot_at_utc", pd.Series(dtype="object")), errors="coerce", utc=True)
+    quote_times = pd.to_datetime(frame.get("market_last_update_utc", pd.Series(dtype="object")), errors="coerce", utc=True)
+    try:
+        get_api_key()
+        key_configured = True
+    except OddsProviderError:
+        key_configured = False
+    mode = frame.get("snapshot_mode", pd.Series(dtype="object")).fillna("").astype(str)
+    return {
+        "available": not frame.empty,
+        "rows": int(len(frame)),
+        "live_rows": int(mode.eq("live").sum()),
+        "historical_rows": int(mode.eq("historical").sum()),
+        "snapshot_updated": _file_stamp(SOCCER_ODDS),
+        "latest_snapshot_at_utc": snapshots.max().isoformat().replace("+00:00", "Z") if not snapshots.empty and snapshots.notna().any() else None,
+        "latest_quote_at_utc": quote_times.max().isoformat().replace("+00:00", "Z") if not quote_times.empty and quote_times.notna().any() else None,
+        "api_key_configured": key_configured,
+        "source": "The Odds API",
+        "path": str(SOCCER_ODDS.relative_to(ROOT)),
+    }
+
+
+def _soccer_state() -> dict[str, Any]:
+    matches = _read_csv(SOCCER_MATCHES)
+    upcoming = _read_csv(SOCCER_UPCOMING)
+    backtest = _read_csv(SOCCER_BACKTEST)
+    scored = 0
+    if not matches.empty and {"home_score", "away_score"}.issubset(matches.columns):
+        scored = int((pd.to_numeric(matches["home_score"], errors="coerce").notna()
+                      & pd.to_numeric(matches["away_score"], errors="coerce").notna()).sum())
+    forecast_metrics = {}
+    if SOCCER_METRICS.exists():
+        try:
+            forecast_metrics = json.loads(SOCCER_METRICS.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            forecast_metrics = {}
+    return {
+        "available": not matches.empty,
+        "matches_path": str(SOCCER_MATCHES.relative_to(ROOT)),
+        "match_rows": int(len(matches)),
+        "scored_matches": scored,
+        "forecast_rows": int(len(upcoming)),
+        "backtest_rows": int(len(backtest)),
+        "matches_updated": _file_stamp(SOCCER_MATCHES),
+        "forecasts_updated": _file_stamp(SOCCER_UPCOMING),
+        "backtest_updated": _file_stamp(SOCCER_BACKTEST),
+        "metrics_updated": _file_stamp(SOCCER_METRICS),
+        "competitions": _soccer_competitions(matches),
+        "metrics_available": bool(forecast_metrics),
+    }
+
+
+@app.get("/api/soccer/state")
+def api_soccer_state() -> dict[str, Any]:
+    """Return soccer data counts, competition choices and local file timestamps."""
+    return _soccer_state()
+
+
+@app.get("/api/soccer/matches")
+def api_soccer_matches(
+    view: str = Query(default="all", pattern="^(all|upcoming|finished)$"),
+    date_from: str | None = Query(default=None, max_length=10),
+    date_to: str | None = Query(default=None, max_length=10),
+    competition_id: str | None = Query(default=None, max_length=160),
+    limit: int = Query(default=500, ge=1, le=3000),
+) -> dict[str, Any]:
+    """Filter imported soccer fixtures/results without making a network request."""
+    frame = _read_csv(SOCCER_MATCHES)
+    if frame.empty:
+        return {"available": False, "view": view, "count": 0, "rows": [], "message": "No soccer dataset yet. Import fixtures/results first."}
+    if competition_id:
+        if "competition_id" not in frame.columns:
+            frame = frame.iloc[0:0]
+        else:
+            frame = frame[frame["competition_id"].fillna("").astype(str).eq(competition_id)]
+    try:
+        start = _validate_game_date(date_from) if date_from else None
+        end = _validate_game_date(date_to) if date_to else None
+        if start and end and end < start:
+            raise ValueError("date_to must be on or after date_from")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if start and "match_date" in frame.columns:
+        dates = pd.to_datetime(frame["match_date"], errors="coerce")
+        frame = frame[dates >= pd.Timestamp(start)]
+    if end and "match_date" in frame.columns:
+        dates = pd.to_datetime(frame["match_date"], errors="coerce")
+        frame = frame[dates <= pd.Timestamp(end)]
+    if view != "all" and not frame.empty:
+        home_score = pd.to_numeric(frame.get("home_score", pd.Series(index=frame.index, dtype="object")), errors="coerce")
+        away_score = pd.to_numeric(frame.get("away_score", pd.Series(index=frame.index, dtype="object")), errors="coerce")
+        scored = home_score.notna() & away_score.notna()
+        if view == "finished":
+            frame = frame[scored]
+        else:
+            frame = frame[~scored]
+    sort_cols = [column for column in ("match_date", "kickoff_time_local", "competition_name", "home_team") if column in frame.columns]
+    if sort_cols:
+        frame = frame.sort_values(sort_cols, ascending=True, kind="stable", na_position="last")
+    count = int(len(frame))
+    return {"available": True, "view": view, "count": count, "rows": _records(frame.head(limit))}
+
+
+@app.get("/api/soccer/forecasts")
+def api_soccer_forecasts(
+    date_from: str | None = Query(default=None, max_length=10),
+    date_to: str | None = Query(default=None, max_length=10),
+    competition_id: str | None = Query(default=None, max_length=160),
+    limit: int = Query(default=500, ge=1, le=3000),
+) -> dict[str, Any]:
+    """Read the latest local soccer forecast file; this endpoint does not trigger a model run."""
+    frame = _read_csv(SOCCER_UPCOMING)
+    if frame.empty:
+        return {"available": False, "count": 0, "rows": [], "message": "No soccer forecasts yet. Generate forecasts for a date range."}
+    if competition_id and "competition_id" in frame.columns:
+        frame = frame[frame["competition_id"].fillna("").astype(str).eq(competition_id)]
+    try:
+        start = _validate_game_date(date_from) if date_from else None
+        end = _validate_game_date(date_to) if date_to else None
+        if start and end and end < start:
+            raise ValueError("date_to must be on or after date_from")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if start:
+        dates = pd.to_datetime(frame["match_date"], errors="coerce") if "match_date" in frame.columns else pd.Series(index=frame.index, dtype="datetime64[ns]")
+        frame = frame[dates >= pd.Timestamp(start)]
+    if end:
+        dates = pd.to_datetime(frame["match_date"], errors="coerce") if "match_date" in frame.columns else pd.Series(index=frame.index, dtype="datetime64[ns]")
+        frame = frame[dates <= pd.Timestamp(end)]
+    sort_cols = [column for column in ("match_date", "kickoff_time_local", "competition_name", "home_team") if column in frame.columns]
+    if sort_cols:
+        frame = frame.sort_values(sort_cols, ascending=True, kind="stable", na_position="last")
+    return {"available": True, "count": int(len(frame)), "rows": _records(frame.head(limit))}
+
+
+@app.get("/api/soccer/picks")
+def api_soccer_picks(
+    date_from: str | None = Query(default=None, max_length=10),
+    date_to: str | None = Query(default=None, max_length=10),
+    min_history_matches: int = Query(default=8, ge=0, le=10000),
+    min_probability: float = Query(default=0.52, ge=0, le=1),
+    limit: int = Query(default=25, ge=1, le=500),
+) -> dict[str, Any]:
+    """Return ranked model-only picks for the top five European domestic leagues."""
+    frame = _read_csv(SOCCER_UPCOMING)
+    if frame.empty:
+        return {
+            "available": False, "count": 0, "rows": [],
+            "message": "No saved soccer forecasts yet. Import fixtures/results, then generate forecasts.",
+            "eligible_leagues": ["Premier League", "La Liga", "Bundesliga", "Serie A", "Ligue 1"],
+        }
+    try:
+        start = _validate_game_date(date_from) if date_from else None
+        end = _validate_game_date(date_to) if date_to else None
+        if start and end and end < start:
+            raise ValueError("date_to must be on or after date_from")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if start and "match_date" in frame.columns:
+        dates = pd.to_datetime(frame["match_date"], errors="coerce")
+        frame = frame[dates >= pd.Timestamp(start)]
+    if end and "match_date" in frame.columns:
+        dates = pd.to_datetime(frame["match_date"], errors="coerce")
+        frame = frame[dates <= pd.Timestamp(end)]
+    picks = build_best_picks(
+        _records(frame), min_history_matches=min_history_matches,
+        min_probability=min_probability, limit=limit,
+    )
+    odds_frame = _read_csv(SOCCER_ODDS)
+    picks = attach_market_odds(picks, _records(odds_frame))
+    matched_odds = sum(bool(pick.get("odds_available")) for pick in picks)
+    return {
+        "available": bool(picks), "count": len(picks), "rows": picks,
+        "odds_snapshot_rows": int(len(odds_frame)), "picks_with_fresh_odds": matched_odds,
+        "eligible_leagues": ["Premier League", "La Liga", "Bundesliga", "Serie A", "Ligue 1"],
+        "min_history_matches": min_history_matches, "min_probability": min_probability,
+        "method": "One strongest independent-Poisson market per fixture; ranked with a historical-sample support adjustment.",
+        "message": "No pick met the top-five-league, sample-history, and probability filters." if not picks else "",
+        "warning": (
+            "Matched prices are experimental comparisons against same-book no-vig probabilities; the model has not been calibrated into a validated betting strategy. Check current market availability and jurisdiction."
+            if matched_odds else
+            "No fresh, exact-team pre-kickoff odds matched these picks. Set THE_ODDS_API_KEY, import odds, and verify that team names/markets match. Probabilities alone are not a market edge or EV recommendation."
+        ),
+    }
+
+
+@app.get("/api/soccer/calibration")
+def api_soccer_calibration(
+    bins: int = Query(default=10, ge=2, le=20),
+    min_samples: int = Query(default=30, ge=1, le=100000),
+) -> dict[str, Any]:
+    """Summarize top-five-league reliability from saved chronological backtest predictions."""
+    matches = _read_csv(SOCCER_MATCHES)
+    backtest = _read_csv(SOCCER_BACKTEST)
+    eligible_ids = {
+        str(row.get("competition_id", ""))
+        for row in _records(matches)
+        if row.get("competition_id") and canonical_top_five_league(row)
+    }
+    report = build_calibration_report(
+        _records(backtest), competition_ids=eligible_ids,
+        bins=bins, min_samples=min_samples,
+    )
+    report["eligible_leagues"] = ["Premier League", "La Liga", "Bundesliga", "Serie A", "Ligue 1"]
+    report["eligible_competitions"] = len(eligible_ids)
+    if not eligible_ids:
+        report["message"] = "Import recognized top-five league results first."
+    elif backtest.empty:
+        report["message"] = "Run the chronological soccer backtest to generate out-of-sample predictions."
+    return report
+
+
+@app.get("/api/soccer/odds/status")
+def api_soccer_odds_status() -> dict[str, Any]:
+    """Describe saved odds coverage and API key configuration without revealing the key."""
+    return _soccer_odds_state()
+
+
+@app.post("/api/soccer/odds/import")
+def api_soccer_odds_import(request: SoccerOddsImportRequest) -> dict[str, Any]:
+    """Explicitly import current odds or a user-confirmed historical snapshot."""
+    args = ["--league", request.league, "--output", "data/soccer/odds_snapshots.csv"]
+    if request.mode == "historical":
+        if not request.historical_date:
+            return {"ok": False, "steps": [], "message": "Historical mode requires a timezone-aware ISO-8601 snapshot date."}
+        if not request.confirm_historical_cost:
+            return {"ok": False, "steps": [], "message": "Confirm the historical API credit cost before importing a paid snapshot."}
+        try:
+            requested = datetime.fromisoformat(request.historical_date.strip().replace("Z", "+00:00"))
+            if requested.tzinfo is None:
+                raise ValueError("Historical timestamp must include a timezone, preferably Z (UTC).")
+            requested = requested.astimezone(timezone.utc)
+            if requested > datetime.now(timezone.utc):
+                raise ValueError("Historical snapshot timestamp cannot be in the future.")
+        except ValueError as exc:
+            return {"ok": False, "steps": [], "message": str(exc)}
+        args.extend(["--regions", "uk", "--markets", "h2h", "--historical-date",
+                     requested.isoformat(timespec="seconds").replace("+00:00", "Z")])
+    else:
+        args.extend(["--regions", request.regions, "--markets", request.markets])
+    result = _run_steps([("scripts.import_soccer_odds", args)])
+    result["odds_state"] = _soccer_odds_state()
+    if request.mode == "historical":
+        league_count = 1 if request.league != "all" else 5
+        result["historical_cost_note"] = (
+            "Estimate: 10 credits per market per region per league. "
+            f"Estimated total: {league_count * 10} credits for {league_count} league(s), "
+            "one UK region and one 1X2 market. Empty responses may cost less."
+        )
+    return result
+
+
+@app.get("/api/soccer/metrics")
+def api_soccer_metrics() -> dict[str, Any]:
+    """Read the last chronological soccer backtest report, if present."""
+    if not SOCCER_METRICS.exists():
+        return {"available": False, "report": None, "message": "No soccer backtest metrics yet. Run a backtest after importing historical results."}
+    try:
+        report = json.loads(SOCCER_METRICS.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {"available": False, "report": None, "message": "Soccer metrics file is unreadable. Run the backtest again."}
+    return {"available": bool(report), "report": report}
+
+
+@app.get("/api/soccer/catalog")
+def api_soccer_catalog(search: str = Query(default="", max_length=80)) -> dict[str, Any]:
+    """Explicitly fetch the StatsBomb Open Data catalog; never called by normal dashboard loading."""
+    clean_search = search.strip()
+    if any(ord(char) < 32 for char in clean_search):
+        raise ValueError("Search cannot contain control characters")
+    args = ["--provider", "statsbomb", "--list-competitions"]
+    if clean_search:
+        args.append("--search=" + clean_search)
+    step = _run_step("scripts.import_soccer_data", args, timeout_seconds=120)
+    rows = []
+    if step["ok"]:
+        for line in str(step.get("output", "")).splitlines():
+            values = line.split("\t")
+            if len(values) >= 6 and values[0] != "competition_id" and values[0].isdigit() and values[1].isdigit():
+                rows.append({
+                    "competition_id": values[0], "season_id": values[1],
+                    "competition_name": values[2], "season_name": values[3],
+                    "country_name": values[4], "cache_status": values[5],
+                })
+    return {"ok": bool(step["ok"]), "rows": rows, "count": len(rows), "output": step.get("output", ""), "message": "Catalog loaded." if step["ok"] else "Could not load StatsBomb catalog; inspect the output."}
+
+
+@app.post("/api/soccer/import")
+def api_soccer_import(request: SoccerImportRequest) -> dict[str, Any]:
+    """Run one allow-listed provider import and expose its operation log."""
+    if request.provider == "statsbomb":
+        if not request.competition_id or not request.season_id:
+            return {"ok": False, "steps": [], "message": "Load the StatsBomb catalog and select a competition and season first."}
+        args = ["--provider", "statsbomb", "--competition-id", request.competition_id, "--season-id", request.season_id]
+        if request.include_xg:
+            args.append("--include-xg")
+    else:
+        args = ["--provider", "openfootball", "--league", request.league, "--season", request.season]
+    if request.limit is not None:
+        args.extend(["--limit", str(request.limit)])
+    result = _run_steps([("scripts.import_soccer_data", args)])
+    result["soccer_state"] = _soccer_state()
+    return result
+
+
+@app.post("/api/soccer/forecast")
+def api_soccer_forecast(request: SoccerForecastRequest) -> dict[str, Any]:
+    """Run forecast generation for the selected date range and optional competition."""
+    try:
+        start = _validate_game_date(request.date_from)
+        end = _validate_game_date(request.date_to) if request.date_to else None
+        if end is not None and end < start:
+            raise ValueError("date_to must be on or after date_from")
+    except ValueError as exc:
+        return {"ok": False, "steps": [], "message": str(exc)}
+    args = [
+        "--input", "data/soccer/matches.csv",
+        "--date-from", start,
+        "--total-goals-line", str(request.total_goals_line),
+        "--prior-games", str(request.prior_games),
+        "--half-life-days", str(request.half_life_days),
+        "--lookback-days", str(request.lookback_days),
+        "--dixon-coles-rho", str(request.dixon_coles_rho),
+    ]
+    if end is not None:
+        args.extend(["--date-to", end])
+    if request.competition_id:
+        args.extend(["--competition-id", request.competition_id])
+    result = _run_steps([("scripts.predict_soccer", args)])
+    result["soccer_state"] = _soccer_state()
+    return result
+
+
+@app.post("/api/soccer/backtest")
+def api_soccer_backtest(request: SoccerBacktestRequest) -> dict[str, Any]:
+    """Run a historical soccer backtest with explicit model parameters."""
+    args = [
+        "--input", "data/soccer/matches.csv",
+        "--min-history", str(request.min_history),
+        "--prior-games", str(request.prior_games),
+        "--half-life-days", str(request.half_life_days),
+        "--lookback-days", str(request.lookback_days),
+        "--total-goals-line", str(request.total_goals_line),
+        "--dixon-coles-rho", str(request.dixon_coles_rho),
+    ]
+    if request.competition_id:
+        args.extend(["--competition-id", request.competition_id])
+    result = _run_steps([("scripts.backtest_soccer", args)])
+    result["soccer_state"] = _soccer_state()
+    return result
+
 
 
 @app.get("/api/state")

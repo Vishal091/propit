@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>PropIt · NBA Prop Intelligence</title>
+<title>PropIt · Multi-sport Intelligence</title>
 <style>
 :root{color-scheme:dark;--bg:#0b0e13;--panel:#121720;--panel2:#171e29;--line:#26303d;--muted:#8d99aa;--text:#ecf2f8;--lime:#c7f36b;--lime2:#a8d850;--blue:#8ac8ff;--red:#ff8a85;--amber:#f5c775;--radius:15px;--shadow:0 16px 40px rgba(0,0,0,.19)}
 *{box-sizing:border-box}
@@ -17,7 +17,7 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
 .sidebar{border-right:1px solid rgba(150,168,192,.12);padding:25px 14px;display:flex;flex-direction:column;gap:7px;position:sticky;top:68px;height:calc(100vh - 68px)}
 .nav-label{font-size:10px;color:#626e7e;text-transform:uppercase;letter-spacing:1.5px;padding:8px 13px 10px;font-weight:750}.nav-btn{border:1px solid transparent;background:transparent;color:#9ba7b6;text-align:left;padding:12px 13px;border-radius:10px;display:flex;align-items:center;gap:12px;font-weight:650;font-size:13px;transition:.15s}.nav-btn:hover{color:var(--text);background:rgba(255,255,255,.035)}.nav-btn.active{background:rgba(199,243,107,.095);border-color:rgba(199,243,107,.17);color:var(--lime)}.nav-icon{width:18px;display:inline-flex;justify-content:center;font-size:16px}.side-bottom{margin-top:auto;border:1px solid var(--line);border-radius:12px;padding:13px;background:rgba(255,255,255,.018)}.side-bottom strong{display:block;font-size:11px;margin-bottom:5px}.side-bottom p{font-size:11px;color:var(--muted);margin:0;line-height:1.55}
 main{min-width:0;padding:28px 30px 48px;max-width:1750px;width:100%;margin:0 auto}.pagehead{display:flex;align-items:flex-start;justify-content:space-between;gap:22px;margin-bottom:22px}.eyebrow{font-size:10px;letter-spacing:1.6px;text-transform:uppercase;color:var(--lime);font-weight:800;margin-bottom:8px}.page-title{font-size:27px;line-height:1.15;letter-spacing:-.8px;margin:0 0 8px;font-weight:800}.subtitle{color:var(--muted);font-size:13px;max-width:650px}.head-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap;max-width:670px}.field-label{color:var(--muted);font-size:10px;letter-spacing:.8px;text-transform:uppercase;display:flex;flex-direction:column;gap:5px}
-input[type=date],select{border:1px solid var(--line);border-radius:9px;background:var(--panel2);color:var(--text);padding:9px 10px;min-height:38px}
+input[type=date],input[type=text],input[type=number],select{border:1px solid var(--line);border-radius:9px;background:var(--panel2);color:var(--text);padding:9px 10px;min-height:38px}
 .btn{border:1px solid var(--line);border-radius:9px;padding:10px 13px;background:#1a222e;color:var(--text);font-weight:750;font-size:12px;white-space:nowrap;transition:transform .12s,border-color .12s,background .12s}.btn:hover:not(:disabled){transform:translateY(-1px);border-color:#506076}.btn-primary{background:var(--lime);border-color:var(--lime);color:#17200b}.btn-primary:hover:not(:disabled){background:#d6fa8d}.btn-quiet{background:transparent}.btn-danger{color:var(--red)}.btn-sm{padding:7px 10px;font-size:11px}
 .notice{padding:12px 14px;border-radius:11px;border:1px solid var(--line);background:var(--panel);margin-bottom:18px;color:var(--muted);font-size:12px;display:none;white-space:pre-wrap;word-break:break-word}.notice.show{display:block}.notice.success{border-color:rgba(199,243,107,.28);color:#d5f3a0}.notice.error{border-color:rgba(255,138,133,.33);color:#ffb4b0}.notice.info{border-color:rgba(138,200,255,.25);color:#b5dcff}
 .panel{background:linear-gradient(145deg,rgba(22,29,40,.92),rgba(17,22,30,.92));border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);min-width:0}.panel-head{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;padding:19px 20px 15px;border-bottom:1px solid rgba(150,168,192,.11)}.panel-title{margin:0;font-weight:760;font-size:14px}.panel-subtitle{margin:5px 0 0;color:var(--muted);font-size:11px}.panel-body{padding:18px 20px}.metric-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin-bottom:18px}.metric{padding:17px 18px;position:relative;overflow:hidden}.metric:after{content:"";position:absolute;right:-23px;top:-31px;width:90px;height:90px;background:rgba(199,243,107,.045);border-radius:50%}.metric-label{color:var(--muted);font-size:11px;font-weight:650;letter-spacing:.4px}.metric-value{font-weight:850;letter-spacing:-1px;font-size:29px;margin:9px 0 4px;line-height:1.15}.metric-foot{font-size:10px;color:#6e7a8b}.metric-accent{color:var(--lime)}.overview-grid{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(280px,.8fr);gap:16px}.table-panel{margin-top:16px}.table-wrap{overflow:auto;width:100%}table{border-collapse:collapse;width:100%;white-space:nowrap;font-size:12px}thead th{text-align:left;color:#8694a6;text-transform:uppercase;font-size:9px;letter-spacing:.8px;font-weight:800;background:rgba(255,255,255,.016);padding:12px 14px;border-bottom:1px solid var(--line)}tbody td{padding:12px 14px;border-bottom:1px solid rgba(150,168,192,.09);color:#cbd5e1}tbody tr:last-child td{border-bottom:0}tbody tr:hover{background:rgba(255,255,255,.025)}.player-cell{font-weight:760;color:#f1f5f9}.muted-cell{color:var(--muted)}.mono{font-variant-numeric:tabular-nums;font-feature-settings:"tnum";font-family:ui-monospace,SFMono-Regular,Menlo,monospace}.side-pill,.status-pill,.target-pill{display:inline-flex;align-items:center;gap:5px;border-radius:6px;padding:4px 7px;font-size:10px;font-weight:850;letter-spacing:.35px}.side-pill.under{background:rgba(138,200,255,.10);color:var(--blue)}.side-pill.over{background:rgba(199,243,107,.11);color:var(--lime)}.target-pill{background:rgba(255,255,255,.06);color:#aab6c5}.status-pill.good{background:rgba(199,243,107,.09);color:var(--lime)}.status-pill.warn{background:rgba(245,199,117,.09);color:var(--amber)}.status-pill.bad{background:rgba(255,138,133,.09);color:var(--red)}
@@ -33,7 +33,7 @@ input[type=date],select{border:1px solid var(--line);border-radius:9px;backgroun
 <header class="topbar">
   <div class="brand">
     <div class="brand-mark">P.</div>
-    <div><div class="brand-name">PropIt <span style="color:var(--lime)">/</span></div><div class="brand-sub">NBA prop intelligence</div></div>
+    <div><div class="brand-name">PropIt <span style="color:var(--lime)">/</span></div><div class="brand-sub">NBA + soccer intelligence</div></div>
   </div>
   <div class="top-right"><span><span class="dot" id="connection-dot"></span><span class="connection-label" id="connection-label">LOCAL WORKSPACE</span></span><button id="reload-btn" class="btn btn-quiet btn-sm" title="Reload data">↻ Refresh view</button></div>
 </header>
@@ -41,6 +41,7 @@ input[type=date],select{border:1px solid var(--line);border-radius:9px;backgroun
   <aside class="sidebar">
     <div class="nav-label">Workspace</div>
     <button class="nav-btn active" data-tab="overview"><span class="nav-icon">◫</span>Overview</button>
+    <button class="nav-btn" data-tab="soccer"><span class="nav-icon">⚽</span>Soccer analytics</button>
     <button class="nav-btn" data-tab="slate"><span class="nav-icon">⌁</span>Today's slate</button>
     <button class="nav-btn" data-tab="history"><span class="nav-icon">◷</span>History & results</button>
     <button class="nav-btn" data-tab="calibration"><span class="nav-icon">⌗</span>Calibration</button>
@@ -93,6 +94,127 @@ input[type=date],select{border:1px solid var(--line);border-radius:9px;backgroun
           <div class="action-row" style="margin-top:14px"><button class="btn btn-sm" data-go="history">Review archived props</button><button class="btn btn-sm" data-action="settle">Settle selected date</button><button class="btn btn-sm" data-action="calibrate">Run calibration</button></div>
         </div>
       </div>
+    </section>
+
+
+    <section class="section" id="section-soccer">
+      <div class="section-intro">
+        <div><h2>Soccer analytics</h2><p>Fixtures, estimated goals, match probabilities and chronological model validation.</p></div>
+        <div class="toolbar"><button class="btn btn-sm" id="soccer-reload-btn">↻ Reload soccer data</button></div>
+      </div>
+      <div class="metric-grid">
+        <div class="panel metric"><div class="metric-label">Imported fixtures</div><div class="metric-value" id="soccer-metric-matches">—</div><div class="metric-foot" id="soccer-metric-matches-foot">No dataset loaded</div></div>
+        <div class="panel metric"><div class="metric-label">Scored historical matches</div><div class="metric-value" id="soccer-metric-scored">—</div><div class="metric-foot">Finished results available</div></div>
+        <div class="panel metric"><div class="metric-label">Saved forecasts</div><div class="metric-value metric-accent" id="soccer-metric-forecasts">—</div><div class="metric-foot" id="soccer-metric-forecasts-foot">No forecast run yet</div></div>
+        <div class="panel metric"><div class="metric-label">Backtest predictions</div><div class="metric-value" id="soccer-metric-backtest">—</div><div class="metric-foot" id="soccer-metric-backtest-foot">No backtest run yet</div></div>
+      </div>
+      <div class="overview-grid">
+        <div class="panel">
+          <div class="panel-head"><div><h2 class="panel-title">Data sources & competitions</h2><p class="panel-subtitle">Import coverage is provider-specific. Missing xG or odds are not inferred.</p></div><span id="soccer-data-badge" class="status-pill warn">NO DATA</span></div>
+          <div class="panel-body">
+            <div class="help-text" id="soccer-data-summary">Import historical results or fixtures to populate this workspace. The dashboard does not fetch a provider automatically on page load.</div>
+            <div class="action-row" style="margin-top:14px">
+              <label class="field-label">Provider
+                <select id="soccer-provider">
+                  <option value="openfootball">OpenFootball · fixtures/results</option>
+                  <option value="statsbomb">StatsBomb · historic event data</option>
+                </select>
+              </label>
+              <label class="field-label" id="soccer-limit-label">Import limit (optional)<input id="soccer-import-limit" type="number" min="1" max="1000" placeholder="Full season"></label>
+            </div>
+            <div id="soccer-openfootball-fields" class="action-row" style="margin-top:12px">
+              <label class="field-label">League
+                <select id="soccer-league">
+                  <option value="england">English Premier League</option><option value="germany">German Bundesliga</option><option value="spain">Spanish La Liga</option><option value="italy">Italian Serie A</option><option value="france">French Ligue 1</option>
+                </select>
+              </label>
+              <label class="field-label">Season<input id="soccer-season" type="text" value="2026-27" maxlength="9" placeholder="2026-27"></label>
+            </div>
+            <div id="soccer-statsbomb-fields" style="display:none;margin-top:12px">
+              <div class="action-row">
+                <label class="field-label">Find competition/season<input id="soccer-catalog-search" type="text" maxlength="80" value="Premier League" placeholder="Search competition"></label>
+                <button class="btn btn-sm" id="soccer-catalog-btn">Load StatsBomb catalog</button>
+              </div>
+              <label class="field-label" style="margin-top:12px">Available competition · season
+                <select id="soccer-statsbomb-entry"><option value="">Load the catalog first</option></select>
+              </label>
+              <label style="display:flex;gap:8px;align-items:center;margin-top:12px;color:var(--muted);font-size:11px"><input id="soccer-include-xg" type="checkbox">Download shot events and calculate xG / shots (takes longer)</label>
+              <div class="help-text" style="margin-top:8px">StatsBomb has curated historic coverage, not every Premier League season or a live odds feed.</div>
+            </div>
+            <div class="action-row" style="margin-top:14px">
+              <button class="btn btn-primary" id="soccer-import-btn">Import soccer data ↗</button>
+              <button class="btn" id="soccer-forecast-btn">Generate forecasts</button>
+              <button class="btn" id="soccer-backtest-btn">Run backtest</button>
+            </div>
+            <div class="help-text" style="margin-top:12px" id="soccer-operation-summary">Imports and model runs are written to the local workspace; use the activity log for details.</div>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><div><h2 class="panel-title">Model evaluation</h2><p class="panel-subtitle">Chronological holdout metrics from the last saved backtest</p></div><span class="status-pill warn" id="soccer-metrics-badge">NOT RUN</span></div>
+          <div class="table-wrap"><table><thead><tr><th>Model</th><th>Matches</th><th>1X2 log loss</th><th>1X2 Brier</th><th>Accuracy</th><th>Goal-rate MAE</th></tr></thead><tbody id="soccer-metrics-table"><tr><td colspan="6" class="empty">No backtest metrics yet.</td></tr></tbody></table></div>
+          <div class="panel-body"><div class="help-text" id="soccer-metrics-note">Lower log loss and Brier scores are better. Results are meaningful only for the dataset and dates imported.</div></div>
+        </div>
+      </div>
+      <div class="panel table-panel">
+        <div class="panel-head">
+          <div><h2 class="panel-title">By league and season</h2><p class="panel-subtitle">Chronological backtest scorecards. Compare lower log loss/Brier within the same sample; sample sizes differ when market odds are missing.</p></div>
+          <span class="help-text">Rolling-origin · point-in-time</span>
+        </div>
+        <div class="table-wrap"><table><thead><tr><th>League</th><th>Season</th><th>Model</th><th>N</th><th>1X2 log loss ↓</th><th>1X2 Brier ↓</th><th>Accuracy</th><th>Goal MAE ↓</th><th>Totals log loss ↓</th></tr></thead><tbody id="soccer-segment-metrics-table"><tr><td colspan="9" class="empty">Run a chronological backtest to populate per-league and per-season metrics.</td></tr></tbody></table></div>
+      </div>
+      <div class="panel table-panel">
+        <div class="panel-head">
+          <div><h2 class="panel-title">Time-stamped bookmaker odds</h2><p class="panel-subtitle">No automatic requests on page load. Imports are explicit and written to a local snapshot ledger.</p></div>
+          <span id="soccer-odds-badge" class="status-pill warn">NOT CHECKED</span>
+        </div>
+        <div class="panel-body">
+          <div id="soccer-odds-note" class="help-text">The optional odds integration uses The Odds API. Set THE_ODDS_API_KEY locally before importing; never commit the key.</div>
+          <div class="action-row" style="margin-top:12px">
+            <button class="btn btn-primary" id="soccer-odds-live-btn">Import live odds · Top 5</button>
+            <label class="field-label">Historical snapshot time (UTC)<input id="soccer-historical-date" type="text" maxlength="40" placeholder="2026-10-24T14:00:00Z"></label>
+            <label style="display:flex;gap:8px;align-items:center;color:var(--muted);font-size:11px"><input id="soccer-confirm-historical" type="checkbox">I acknowledge historical API credit usage</label>
+            <button class="btn btn-sm" id="soccer-odds-historical-btn">Import historical 1X2 snapshot</button>
+          </div>
+          <div class="help-text warning-text" style="margin-top:10px">Live import estimate: up to 20 credits for five leagues with UK + Europe regions and 1X2 + totals. Historical import requests 1X2 for all five leagues using the UK region only: about 50 credits. Historical odds require an eligible paid plan.</div>
+        </div>
+      </div>
+      <div class="panel table-panel">
+        <div class="panel-head">
+          <div><h2 class="panel-title">Best picks · Top 5 European leagues</h2><p class="panel-subtitle">One strongest model market per fixture, ranked across the Premier League, La Liga, Bundesliga, Serie A and Ligue 1.</p></div>
+          <div class="toolbar"><span class="status-pill warn" id="soccer-picks-badge">NO PICKS</span><button class="btn btn-sm" id="soccer-picks-refresh">↻ Refresh picks</button></div>
+        </div>
+        <div class="panel-body"><p class="help-text" id="soccer-picks-note">Minimum 8 prior competition matches and 52% model probability. Fresh, exact-team, pre-kickoff prices are required to calculate an experimental market edge and expected value; unmatched or stale prices remain excluded.</p></div>
+        <div class="table-wrap"><table><thead><tr><th>Rank</th><th>Date</th><th>League</th><th>Fixture</th><th>Top market</th><th>Model P</th><th>Market no-vig P</th><th>Best odds</th><th>Model edge</th><th>EV / unit</th><th>Bookmaker</th><th>Quote age</th><th>History</th><th>Rank score</th><th>Signal status</th></tr></thead><tbody id="soccer-picks-table"><tr><td colspan="15" class="empty">Generate forecasts and import fresh odds to build the shortlist.</td></tr></tbody></table></div>
+      </div>
+      <div class="panel table-panel">
+        <div class="panel-head">
+          <div><h2 class="panel-title">Top-five league calibration</h2><p class="panel-subtitle">Reliability of the most-probable 1X2 outcome on saved chronological backtests.</p></div>
+          <div class="toolbar"><span class="status-pill warn" id="soccer-calibration-badge">NOT RUN</span><button class="btn btn-sm" id="soccer-calibration-refresh">↻ Refresh diagnostics</button></div>
+        </div>
+        <div class="panel-body"><p class="help-text" id="soccer-calibration-note">No calibration claim is made until the backtest provides at least 30 evaluated matches. This is a descriptive reliability report, not a fitted probability adjustment.</p></div>
+        <div class="table-wrap"><table><thead><tr><th>Model</th><th>Backtest matches</th><th>Expected calibration error ↓</th><th>Sample gate</th><th>Interpretation</th></tr></thead><tbody id="soccer-calibration-table"><tr><td colspan="5" class="empty">Run a chronological backtest to inspect calibration.</td></tr></tbody></table></div>
+        <div class="table-wrap"><table><thead><tr><th>Model</th><th>Confidence bucket</th><th>N</th><th>Mean confidence</th><th>Observed accuracy</th><th>Observed − predicted</th></tr></thead><tbody id="soccer-reliability-table"><tr><td colspan="6" class="empty">Reliability buckets appear after predictions are evaluated.</td></tr></tbody></table></div>
+      </div>
+<div class="panel-head"><div><h2 class="panel-title">Fixtures & predictions</h2><p class="panel-subtitle" id="soccer-fixture-summary">Select a view and date range to inspect imported fixtures or saved forecasts.</p></div><span class="status-pill warn">RESEARCH ONLY</span></div>
+        <div class="panel-body">
+          <div class="action-row">
+            <label class="field-label">From<input type="date" id="soccer-date-from"></label>
+            <label class="field-label">To<input type="date" id="soccer-date-to"></label>
+            <label class="field-label">Competition
+              <select id="soccer-filter-comp"><option value="">All competitions</option></select>
+            </label>
+            <button class="btn btn-sm" id="soccer-filter-btn">Apply filters</button>
+          </div>
+          <div class="tabchips" style="margin-top:14px;width:max-content;max-width:100%;flex-wrap:wrap">
+            <button class="chip active" data-soccer-view="forecasts">Predictions</button>
+            <button class="chip" data-soccer-view="upcoming">Scheduled fixtures</button>
+            <button class="chip" data-soccer-view="finished">Completed results</button>
+            <button class="chip" data-soccer-view="all">All imported</button>
+          </div>
+        </div>
+        <div class="table-wrap"><table><thead><tr><th>Match date</th><th>Competition</th><th>Home</th><th>Away</th><th>Score</th><th>Expected goals</th><th>Home win</th><th>Draw</th><th>Away win</th><th>Over 2.5</th><th>Under 2.5</th><th>History</th><th>Data status</th></tr></thead><tbody id="soccer-fixtures-table"><tr><td colspan="13" class="empty">Loading soccer data…</td></tr></tbody></table></div>
+      </div>
+      <p class="footnote">Forecasts are generated from historical scores in the imported competition dataset. Expected goals and probabilities are experimental. Missing kickoff timezones remain unknown; xG is shown only where the provider supplies complete shot data. No bookmaker odds, confirmed lineups, or injuries are included in this view.</p>
     </section>
 
     <section class="section" id="section-slate">
@@ -234,11 +356,12 @@ input[type=date],select{border:1px solid var(--line);border-radius:9px;backgroun
   }
   function setBusy(value, label){
     busy=value;
-    ["refresh-btn","workflow-btn","reload-btn","calibrate-btn","ops-refresh-btn","ops-report-btn","backup-btn"].forEach(function(id){
+    ["refresh-btn","workflow-btn","reload-btn","calibrate-btn","ops-refresh-btn","ops-report-btn","backup-btn","soccer-reload-btn","soccer-catalog-btn","soccer-import-btn","soccer-forecast-btn","soccer-backtest-btn","soccer-filter-btn"].forEach(function(id){
       if($(id)) $(id).disabled=value;
     });
     document.querySelectorAll("[data-action]").forEach(function(btn){btn.disabled=value;});
     document.querySelectorAll("[data-view]").forEach(function(btn){btn.disabled=value;});
+    document.querySelectorAll("[data-soccer-view]").forEach(function(btn){btn.disabled=value;});
     if(value){
       $("connection-label").textContent="WORKFLOW RUNNING";
       $("connection-dot").style.background="var(--amber)";
@@ -260,24 +383,46 @@ input[type=date],select{border:1px solid var(--line);border-radius:9px;backgroun
     activeTab=id;
     document.querySelectorAll(".nav-btn").forEach(function(btn){btn.classList.toggle("active",btn.dataset.tab===id);});
     document.querySelectorAll(".section").forEach(function(section){section.classList.toggle("active",section.id==="section-"+id);});
+    var globalActions=document.querySelector(".head-actions"); if(globalActions) globalActions.style.display=id==="soccer"?"none":"";
     $("page-title").textContent=title;
     $("page-subtitle").textContent=subtitle;
   }
+  var soccerView = "forecasts";
+  var lastSoccerCatalog = [];
   var tabData={
     overview:["The slate at a glance","Run your market refresh, inspect candidates, and keep every pregame prediction tied to its eventual result."],
+    soccer:["Soccer match intelligence","Inspect imported fixtures, generate goal probabilities, and compare chronological model evaluation without changing the NBA workflow."],
     slate:["Today's slate","Ranked model projections against the available public market snapshot. Every estimate is experimental."],
     history:["History & results","A persistent ledger of what PropIt predicted before a game, plus outcomes after the public box score updates."],
     calibration:["Calibration & backtest","Validate probabilities using later dates the calibration model did not fit on."],
     operations:["Operations & reliability","Monitor local data freshness, model readiness, workflow failures and backup/report state."]
   };
   document.querySelectorAll(".nav-btn").forEach(function(btn){
-    btn.addEventListener("click",function(){var id=btn.dataset.tab;tab(tabData[id][0],tabData[id][1],id); if(id==="slate") loadSlate(); if(id==="history") loadHistory(); if(id==="calibration") loadCalibration(); if(id==="operations") loadOperations();});
+    btn.addEventListener("click",function(){var id=btn.dataset.tab;tab(tabData[id][0],tabData[id][1],id); if(id==="slate") loadSlate(); if(id==="history") loadHistory(); if(id==="calibration") loadCalibration(); if(id==="operations") loadOperations(); if(id==="soccer") loadSoccerDashboard();});
   });
   document.querySelectorAll("[data-go]").forEach(function(btn){
     btn.addEventListener("click",function(){var id=btn.dataset.go;tab(tabData[id][0],tabData[id][1],id);if(id==="slate")loadSlate();if(id==="history")loadHistory();});
   });
   $("reload-btn").addEventListener("click", function(){refreshView();});
   $("hide-log").addEventListener("click",function(){$("run-log").classList.remove("show");});
+  $("soccer-provider").addEventListener("change",setSoccerProviderMode);
+  $("soccer-catalog-btn").addEventListener("click",loadSoccerCatalog);
+  $("soccer-import-btn").addEventListener("click",importSoccerData);
+  $("soccer-forecast-btn").addEventListener("click",generateSoccerForecasts);
+  $("soccer-backtest-btn").addEventListener("click",runSoccerBacktest);
+  $("soccer-reload-btn").addEventListener("click",loadSoccerDashboard);
+  $("soccer-picks-refresh").addEventListener("click",loadSoccerPicks);
+  $("soccer-odds-live-btn").addEventListener("click",function(){runSoccerOddsImport("live");});
+  $("soccer-odds-historical-btn").addEventListener("click",function(){runSoccerOddsImport("historical");});
+  $("soccer-calibration-refresh").addEventListener("click",loadSoccerCalibration);
+  $("soccer-filter-btn").addEventListener("click",loadSoccerView);
+  document.querySelectorAll("[data-soccer-view]").forEach(function(btn){
+    btn.addEventListener("click",function(){
+      soccerView=btn.dataset.soccerView;
+      document.querySelectorAll("[data-soccer-view]").forEach(function(item){item.classList.toggle("active",item.dataset.soccerView===soccerView);});
+      loadSoccerView();
+    });
+  });
   document.querySelectorAll("[data-view]").forEach(function(btn){
     btn.addEventListener("click",function(){
       slateView=btn.dataset.view;
@@ -342,6 +487,7 @@ input[type=date],select{border:1px solid var(--line);border-radius:9px;backgroun
       if(activeTab==="history") await loadHistory();
       if(activeTab==="calibration") await loadCalibration();
       if(activeTab==="operations") await loadOperations();
+      if(activeTab==="soccer") await loadSoccerDashboard();
       $("connection-label").textContent="LOCAL WORKSPACE";
       $("connection-dot").style.background="var(--lime)";
     }catch(err){showNotice("Could not load dashboard data: "+err.message,"error");$("connection-label").textContent="SERVER ERROR";$("connection-dot").style.background="var(--red)";}
@@ -509,8 +655,309 @@ input[type=date],select{border:1px solid var(--line);border-radius:9px;backgroun
       $("ops-performance-table").innerHTML=emptyRow(8,"Could not load holdout metrics",err.message);
     }
   }
+
+  function localDateOffset(days){
+    var d=new Date();d.setDate(d.getDate()+Number(days||0));
+    return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
+  }
+  function setSoccerProviderMode(){
+    var isStatsBomb=$("soccer-provider").value==="statsbomb";
+    $("soccer-openfootball-fields").style.display=isStatsBomb?"none":"flex";
+    $("soccer-statsbomb-fields").style.display=isStatsBomb?"block":"none";
+  }
+  function soccerQueryString(){
+    var params=[];
+    var from=$("soccer-date-from").value, to=$("soccer-date-to").value, competition=$("soccer-filter-comp").value;
+    if(from)params.push("date_from="+encodeURIComponent(from));
+    if(to)params.push("date_to="+encodeURIComponent(to));
+    if(competition)params.push("competition_id="+encodeURIComponent(competition));
+    return params.length?"&"+params.join("&"):"";
+  }
+  function renderSoccerState(s){
+    $("soccer-metric-matches").textContent=Number(s.match_rows||0).toLocaleString();
+    $("soccer-metric-scored").textContent=Number(s.scored_matches||0).toLocaleString();
+    $("soccer-metric-forecasts").textContent=Number(s.forecast_rows||0).toLocaleString();
+    $("soccer-metric-backtest").textContent=Number(s.backtest_rows||0).toLocaleString();
+    $("soccer-metric-matches-foot").textContent=s.matches_updated?"Updated "+stamp(s.matches_updated):"No dataset loaded";
+    $("soccer-metric-forecasts-foot").textContent=s.forecasts_updated?"Updated "+stamp(s.forecasts_updated):"No forecast run yet";
+    $("soccer-metric-backtest-foot").textContent=s.backtest_updated?"Updated "+stamp(s.backtest_updated):"No backtest run yet";
+    var hasData=Number(s.match_rows||0)>0;
+    $("soccer-data-badge").textContent=hasData?"DATA LOADED":"NO DATA";
+    $("soccer-data-badge").className="status-pill "+(hasData?"good":"warn");
+    var compCount=(s.competitions||[]).length;
+    $("soccer-data-summary").textContent=hasData
+      ? Number(s.match_rows).toLocaleString()+" rows · "+Number(s.scored_matches||0).toLocaleString()+" scored · "+compCount+" competition/season entries · matches file updated "+stamp(s.matches_updated)
+      : "No soccer match dataset found at "+(s.matches_path||"data/soccer/matches.csv")+". Import fixtures/results to begin.";
+    var select=$("soccer-filter-comp"), previous=select.value;
+    var uniq={}, comps=[];
+    (s.competitions||[]).forEach(function(row){
+      var id=String(row.competition_id||"");
+      if(id&&!uniq[id]){uniq[id]=true;comps.push(row);}
+    });
+    comps.sort(function(a,b){return String(a.competition_name||a.competition_id).localeCompare(String(b.competition_name||b.competition_id));});
+    select.innerHTML='<option value="">All competitions</option>'+comps.map(function(row){
+      return '<option value="'+escapeHtml(row.competition_id)+'">'+escapeHtml(row.competition_name||row.competition_id)+' · '+escapeHtml(row.provider||"source")+'</option>';
+    }).join("");
+    if(previous&&uniq[previous])select.value=previous;
+  }
+  function renderSoccerMetrics(data){
+    var report=data&&data.report?data.report:null;
+    var models=report&&Array.isArray(report.models)?report.models:[];
+    $("soccer-metrics-badge").textContent=data&&data.available?"REPORT READY":"NOT RUN";
+    $("soccer-metrics-badge").className="status-pill "+(data&&data.available?"good":"warn");
+    $("soccer-metrics-table").innerHTML=models.length?models.map(function(m){
+      return '<tr><td><span class="player-cell">'+escapeHtml(m.model||"—")+'</span></td><td class="mono">'+escapeHtml(m.matches||0)+'</td><td class="mono">'+fixed(m.log_loss_1x2,4)+'</td><td class="mono">'+fixed(m.brier_1x2,4)+'</td><td class="mono">'+pct(m.accuracy_1x2)+'</td><td class="mono">'+fixed(m.expected_goals_mae,3)+'</td></tr>';
+    }).join(""):emptyRow(6,"No backtest metrics yet",data&&data.message?data.message:"Run a chronological backtest after importing historical results.");
+    $("soccer-metrics-note").textContent=report
+      ? "Evaluated "+Number(report.backtested_matches||0).toLocaleString()+" matches · "+Number(report.source_scored_matches||0).toLocaleString()+" scored source rows · "+Number(report.skipped_warmup_matches||0).toLocaleString()+" warm-up matches skipped. "+String(report.warning||"")
+      : "Lower log loss and Brier scores are better. A test-suite pass is not evidence of predictive accuracy; inspect the real backtest sample and compare both models.";
+    var segments=[];
+    (report&&Array.isArray(report.competitions)?report.competitions:[]).forEach(function(comp){
+      (comp.metrics||[]).forEach(function(m){
+        segments.push({league:comp.competition_name||comp.competition_id||"Unknown",season:"All seasons",model:m});
+      });
+    });
+    (report&&Array.isArray(report.seasons)?report.seasons:[]).forEach(function(season){
+      (season.metrics||[]).forEach(function(m){
+        segments.push({league:season.competition_name||season.competition_id||"Unknown",season:season.season_name||season.season_id||"Unknown",model:m});
+      });
+    });
+    $("soccer-segment-metrics-table").innerHTML=segments.length?segments.map(function(item){
+      var m=item.model;
+      return '<tr><td>'+escapeHtml(item.league)+'</td><td>'+escapeHtml(item.season)+'</td><td class="player-cell">'+escapeHtml(m.model||"—")+'</td><td class="mono">'+escapeHtml(m.matches||0)+'</td><td class="mono">'+fixed(m.log_loss_1x2,4)+'</td><td class="mono">'+fixed(m.brier_1x2,4)+'</td><td class="mono">'+pct(m.accuracy_1x2)+'</td><td class="mono">'+fixed(m.expected_goals_mae,3)+'</td><td class="mono">'+fixed(m.total_log_loss,4)+'</td></tr>';
+    }).join(""):emptyRow(9,"No segmented metrics yet","Import multiple historical seasons and run the chronological backtest.");
+  }
+  async function loadSoccerOddsStatus(){
+    try{
+      var state=await request("/api/soccer/odds/status");
+      var configured=!!state.api_key_configured;
+      var rows=Number(state.rows||0);
+      $("soccer-odds-badge").textContent=rows?rows.toLocaleString()+" SAVED":configured?"KEY READY":"KEY NEEDED";
+      $("soccer-odds-badge").className="status-pill "+(rows?"good":"warn");
+      $("soccer-odds-note").textContent=rows
+        ? rows.toLocaleString()+" bookmaker-market snapshots saved · "+Number(state.live_rows||0)+" live and "+Number(state.historical_rows||0)+" historical rows. Latest snapshot: "+(state.latest_snapshot_at_utc||"unknown")+". Quotes remain usable only while fresh and pre-kickoff."
+        : configured
+          ? "API key detected locally. No odds have been imported yet; click Import live odds to fetch a snapshot."
+          : "No odds imported and THE_ODDS_API_KEY was not detected. Set it in PowerShell or in your ignored local .env file, then restart the dashboard. The key is never displayed.";
+    }catch(err){
+      $("soccer-odds-badge").textContent="STATUS ERROR";
+      $("soccer-odds-note").textContent=err.message;
+    }
+  }
+  async function runSoccerOddsImport(mode){
+    if(busy)return;
+    var payload={mode:mode,league:"all"};
+    if(mode==="historical"){
+      var stamp=$("soccer-historical-date").value.trim();
+      if(!stamp){showNotice("Enter a historical UTC snapshot such as 2026-10-24T14:00:00Z.", "error");return;}
+      if(!$("soccer-confirm-historical").checked){showNotice("Confirm that you understand historical 1X2 import costs about 50 API credits for all five leagues.", "error");return;}
+      payload.historical_date=stamp;
+      payload.confirm_historical_cost=true;
+    }else{
+      payload.regions="uk,eu";
+      payload.markets="h2h,totals";
+    }
+    setBusy(true,mode==="historical"?"Importing a confirmed historical 1X2 snapshot…":"Importing current bookmaker odds for the five leagues…");
+    $("run-log").classList.add("show");
+    try{
+      var result=await post("/api/soccer/odds/import",payload);
+      showLog(result);
+      if(result.ok)showNotice(result.message||"Odds import completed. Fresh pre-kickoff matches will now be compared with model probabilities.","success");
+      else showNotice(result.message||"Odds import did not complete; inspect the activity log for provider/plan/quota details.","error");
+      await Promise.all([loadSoccerOddsStatus(),loadSoccerPicks()]);
+    }catch(err){
+      showNotice("Odds import failed: "+err.message,"error");
+      showLog({message:err.message,steps:[]});
+    }finally{
+      setBusy(false);
+      $("connection-label").textContent="LOCAL WORKSPACE";
+      $("connection-dot").style.background="var(--lime)";
+    }
+  }
+  async function loadSoccerPicks(){
+    try{
+      var from=$("soccer-date-from").value||"";
+      var to=$("soccer-date-to").value||"";
+      var query=(from?"&date_from="+encodeURIComponent(from):"")+(to?"&date_to="+encodeURIComponent(to):"");
+      var data=await request("/api/soccer/picks?min_history_matches=8&min_probability=0.52&limit=25"+query);
+      var rows=data.rows||[];
+      var matched=Number(data.picks_with_fresh_odds||0);
+      $("soccer-picks-badge").textContent=rows.length?rows.length+" RANKED":"NO PICKS";
+      $("soccer-picks-badge").className="status-pill "+(matched?"good":rows.length?"warn":"warn");
+      $("soccer-picks-note").textContent=rows.length
+        ? "Showing "+rows.length+" ranked picks; "+matched+" currently have fresh, exact-match pre-kickoff odds. Model edge and EV are experimental because model calibration has not yet been proven, and lineups/injuries are not integrated."
+        : (data.message||"No picks passed the history and probability filters. Import more seasons or generate forecasts for the chosen dates.")+" Odds are never guessed or fuzzy-matched.";
+      $("soccer-picks-table").innerHTML=rows.length?rows.map(function(p){
+        var fixture=String(p.home_team||"—")+" vs "+String(p.away_team||"—");
+        var evidence=p.support_status==="SUPPORTED"?"good":"warn";
+        var marketP=p.market_probability;
+        var edge=p.market_edge_probability;
+        var edgeText=edge===null||edge===undefined?"—":((Number(edge)>0?"+":"")+fixed(Number(edge)*100,1)+" pp");
+        var ev=p.expected_value_per_unit;
+        var quoteAge=num(p.odds_age_minutes);
+        var quoteAgeText=quoteAge===null?"—":quoteAge<60?Math.round(quoteAge)+"m":fixed(quoteAge/60,1)+"h";
+        var status=String(p.odds_status||"NOT IMPORTED");
+        var marketStatus=status==="EXPERIMENTAL POSITIVE EV"?"warn":p.odds_available?"good":"warn";
+        return '<tr><td class="mono">'+escapeHtml(p.rank)+'</td><td class="mono">'+escapeHtml(gameDateLabel(p.match_date))+'<div class="muted-cell" style="font-size:10px;margin-top:3px">'+escapeHtml(p.kickoff_time_local||"Kickoff unknown")+'</div></td><td>'+escapeHtml(p.league||"—")+'</td><td class="player-cell">'+escapeHtml(fixture)+'<div class="muted-cell" style="font-size:10px;margin-top:3px">xG '+fixed(p.expected_home_goals,2)+' – '+fixed(p.expected_away_goals,2)+'</div></td><td>'+escapeHtml(p.market||"—")+'</td><td class="mono">'+pct(p.model_probability)+'</td><td class="mono">'+pct(marketP)+'</td><td class="mono">'+fixed(p.best_odds_decimal,2)+'</td><td class="mono">'+escapeHtml(edgeText)+'</td><td class="mono">'+fixed(ev,3)+'</td><td>'+escapeHtml(p.best_odds_bookmaker||"—")+'</td><td class="mono">'+escapeHtml(quoteAgeText)+'</td><td class="mono">'+escapeHtml(p.history_matches)+' <span class="muted-cell">('+escapeHtml(p.home_team_home_matches)+' H / '+escapeHtml(p.away_team_away_matches)+' A team splits)</span></td><td class="mono">'+fixed(p.rank_score,3)+'</td><td><span class="status-pill '+marketStatus+'">'+escapeHtml(status)+'</span><div class="muted-cell" style="font-size:10px;margin-top:3px">'+escapeHtml(p.support_status||"—")+'</div></td></tr>';
+      }).join(""):emptyRow(15,"No qualifying picks",data.message||"Import historical results and upcoming fixtures, then generate forecasts.");
+    }catch(err){
+      $("soccer-picks-table").innerHTML=emptyRow(15,"Could not load best picks",err.message);
+      $("soccer-picks-badge").textContent="ERROR";$("soccer-picks-badge").className="status-pill bad";
+    }
+  }
+  async function loadSoccerCalibration(){
+    try{
+      var data=await request("/api/soccer/calibration?bins=10&min_samples=30");
+      var models=data.model_reports||[];
+      var enough=models.some(function(m){return m.sample_sufficient;});
+      $("soccer-calibration-badge").textContent=!data.available?"NO DATA":enough?"SAMPLE READY":"THIN SAMPLE";
+      $("soccer-calibration-badge").className="status-pill "+(enough?"good":"warn");
+      $("soccer-calibration-note").textContent=(data.message||"")+String(data.warning||"")+(data.available?" Evaluated "+Number(data.matches_evaluated||0).toLocaleString()+" match/model rows within recognized top-five leagues.":"");
+      $("soccer-calibration-table").innerHTML=models.length?models.map(function(m){
+        return '<tr><td class="player-cell">'+escapeHtml(m.model||"—")+'</td><td class="mono">'+escapeHtml(m.matches||0)+'</td><td class="mono">'+fixed(m.expected_calibration_error,4)+'</td><td><span class="status-pill '+(m.sample_sufficient?"good":"warn")+'">'+(m.sample_sufficient?"PASS":"NEEDS MORE")+'</span></td><td>'+escapeHtml(m.interpretation||"—")+'</td></tr>';
+      }).join(""):emptyRow(5,"No top-five league backtest data",data.message||"Run the chronological backtest after importing historical matches.");
+      var reliability=[];
+      models.forEach(function(m){(m.reliability||[]).forEach(function(b){
+        reliability.push({model:m.model,lower:b.lower,upper:b.upper,count:b.count,predicted:b.mean_predicted_confidence,observed:b.observed_accuracy,gap:b.observed_minus_predicted});
+      });});
+      $("soccer-reliability-table").innerHTML=reliability.length?reliability.map(function(b){
+        return '<tr><td>'+escapeHtml(b.model)+'</td><td class="mono">'+pct(b.lower)+' – '+pct(b.upper)+'</td><td class="mono">'+escapeHtml(b.count)+'</td><td class="mono">'+pct(b.predicted)+'</td><td class="mono">'+pct(b.observed)+'</td><td class="mono">'+signed(b.gap)+'</td></tr>';
+      }).join(""):emptyRow(6,"No reliability buckets","More chronological predictions are needed.");
+    }catch(err){
+      $("soccer-calibration-table").innerHTML=emptyRow(5,"Could not load calibration",err.message);
+      $("soccer-reliability-table").innerHTML=emptyRow(6,"Could not load reliability",err.message);
+      $("soccer-calibration-badge").textContent="ERROR";$("soccer-calibration-badge").className="status-pill bad";
+    }
+  }
+  async function loadSoccerDashboard(){
+    try{
+      var state=await request("/api/soccer/state");
+      renderSoccerState(state);
+      var metrics=await request("/api/soccer/metrics");
+      renderSoccerMetrics(metrics);
+      await Promise.all([loadSoccerOddsStatus(), loadSoccerPicks(), loadSoccerCalibration(), loadSoccerView()]);
+    }catch(err){
+      $("soccer-fixtures-table").innerHTML=emptyRow(13,"Could not load soccer dashboard",err.message);
+      showNotice("Could not load soccer data: "+err.message,"error");
+    }
+  }
+  function renderSoccerFixtures(rows, isForecast){
+    if(!rows.length){
+      $("soccer-fixtures-table").innerHTML=emptyRow(13,isForecast?"No forecasts in this view":"No fixtures in this view",isForecast?"Generate forecasts for the selected dates after importing future fixtures.":"Import fixtures/results or change the date/competition filter.");
+      return;
+    }
+    $("soccer-fixtures-table").innerHTML=rows.map(function(r){
+      var home=String(r.home_team||"—"), away=String(r.away_team||"—");
+      var homeScore=num(r.home_score), awayScore=num(r.away_score);
+      var score=homeScore===null||awayScore===null?"—":String(homeScore)+"–"+String(awayScore);
+      var xh=isForecast?num(r.expected_home_goals):num(r.home_xg);
+      var xa=isForecast?num(r.expected_away_goals):num(r.away_xg);
+      var goals=xh===null||xa===null?"—":fixed(xh,2)+" – "+fixed(xa,2);
+      var homeWin=num(r.dixon_coles_home_win);if(homeWin===null)homeWin=num(r.poisson_home_win);
+      var draw=num(r.dixon_coles_draw);if(draw===null)draw=num(r.poisson_draw);
+      var awayWin=num(r.dixon_coles_away_win);if(awayWin===null)awayWin=num(r.poisson_away_win);
+      var over=num(r.dixon_coles_over);if(over===null)over=num(r.poisson_over);
+      var under=num(r.dixon_coles_under);if(under===null)under=num(r.poisson_under);
+      var historyCount=num(r.history_matches);
+      var historyText=historyCount===null?"—":Math.round(historyCount)+" prior matches";
+      var status=String(r.xg_status||r.source_cache_status||r.provider||"—");
+      if(isForecast)status="Forecast · "+(r.provider||"source data");
+      return '<tr><td class="mono">'+escapeHtml(gameDateLabel(r.match_date))+'</td><td>'+escapeHtml(r.competition_name||r.competition_id||"—")+'<div class="muted-cell" style="font-size:10px;margin-top:3px">'+escapeHtml(r.season_name||r.provider||"")+'</div></td><td><span class="player-cell">'+escapeHtml(home)+'</span></td><td><span class="player-cell">'+escapeHtml(away)+'</span></td><td class="mono">'+escapeHtml(score)+'</td><td class="mono">'+escapeHtml(goals)+'</td><td class="mono">'+pct(homeWin)+'</td><td class="mono">'+pct(draw)+'</td><td class="mono">'+pct(awayWin)+'</td><td class="mono">'+pct(over)+'</td><td class="mono">'+pct(under)+'</td><td class="mono">'+escapeHtml(historyText)+'</td><td><span class="status-pill '+(String(status).toLowerCase().includes("stale")?"warn":"")+'">'+escapeHtml(status)+'</span></td></tr>';
+    }).join("");
+  }
+  async function loadSoccerView(){
+    try{
+      var query=soccerQueryString();
+      var data;
+      if(soccerView==="forecasts"){
+        data=await request("/api/soccer/forecasts?limit=1000"+query);
+        renderSoccerFixtures(data.rows||[],true);
+        $("soccer-fixture-summary").textContent=Number(data.count||0).toLocaleString()+" saved forecast rows · showing the selected date and competition range.";
+      }else{
+        data=await request("/api/soccer/matches?view="+encodeURIComponent(soccerView)+"&limit=1000"+query);
+        renderSoccerFixtures(data.rows||[],false);
+        $("soccer-fixture-summary").textContent=Number(data.count||0).toLocaleString()+" imported fixture/result rows · "+(data.view||soccerView)+" view.";
+      }
+    }catch(err){
+      $("soccer-fixtures-table").innerHTML=emptyRow(13,"Could not load fixtures",err.message);
+      $("soccer-fixture-summary").textContent="Filter or data-loading error: "+err.message;
+    }
+  }
+  async function loadSoccerCatalog(){
+    if(busy)return;
+    setBusy(true,"Loading the StatsBomb Open Data competition catalog…");
+    try{
+      var search=$("soccer-catalog-search").value||"";
+      var data=await request("/api/soccer/catalog?search="+encodeURIComponent(search));
+      lastSoccerCatalog=data.rows||[];
+      $("soccer-statsbomb-entry").innerHTML=lastSoccerCatalog.length?lastSoccerCatalog.map(function(row){
+        return '<option value="'+escapeHtml(row.competition_id+"|"+row.season_id)+'">'+escapeHtml(row.competition_name+" · "+row.season_name+(row.country_name?" · "+row.country_name:""))+'</option>';
+      }).join(""):'<option value="">No matches available</option>';
+      showNotice(data.ok?data.count+" StatsBomb competition-season entries loaded.":(data.message||"Could not load StatsBomb catalog."),data.ok?"success":"error");
+      if(!data.ok)showLog({message:data.message||"Catalog request failed",steps:[{step:"scripts.import_soccer_data --list-competitions",ok:false,output:data.output||""}]});
+    }catch(err){showNotice("Could not load StatsBomb catalog: "+err.message,"error");}
+    finally{setBusy(false);$("connection-label").textContent="LOCAL WORKSPACE";$("connection-dot").style.background="var(--lime)";}
+  }
+  async function runSoccerOperation(path, body, label){
+    if(busy)return;
+    setBusy(true,label);
+    $("run-log").classList.add("show");
+    try{
+      var result=await post(path,body);
+      showLog(result);
+      if(result.ok){
+        showNotice(result.message||"Soccer operation completed.","success");
+        await loadSoccerDashboard();
+      }else{
+        showNotice(result.message||"Soccer operation did not complete. Review the activity log.","error");
+      }
+    }catch(err){
+      showNotice("Soccer operation failed: "+err.message,"error");
+      showLog({message:err.message,steps:[]});
+    }finally{
+      setBusy(false);
+      $("connection-label").textContent="LOCAL WORKSPACE";
+      $("connection-dot").style.background="var(--lime)";
+    }
+  }
+  async function importSoccerData(){
+    var provider=$("soccer-provider").value;
+    var payload={provider:provider};
+    var limit=String($("soccer-import-limit").value||"").trim();
+    if(limit)payload.limit=Number(limit);
+    if(provider==="openfootball"){
+      payload.league=$("soccer-league").value;
+      payload.season=String($("soccer-season").value||"").trim();
+      if(!/^\d{4}[-/]\d{2,4}$/.test(payload.season)){showNotice("Season must look like 2026-27.","error");return;}
+    }else{
+      var selected=String($("soccer-statsbomb-entry").value||"");
+      var ids=selected.split("|");
+      if(ids.length!==2||!/^\d+$/.test(ids[0])||!/^\d+$/.test(ids[1])){
+        showNotice("Load and select a StatsBomb competition-season first.","error");return;
+      }
+      payload.competition_id=ids[0];payload.season_id=ids[1];
+      payload.include_xg=$("soccer-include-xg").checked;
+    }
+    await runSoccerOperation("/api/soccer/import",payload,"Importing soccer data. This can take longer when shot-event xG is selected…");
+  }
+  async function generateSoccerForecasts(){
+    var dateFrom=$("soccer-date-from").value, dateTo=$("soccer-date-to").value;
+    if(!dateFrom){showNotice("Choose the first forecast date.","error");return;}
+    if(dateTo&&dateTo<dateFrom){showNotice("The end date must be on or after the start date.","error");return;}
+    soccerView="forecasts";
+    document.querySelectorAll("[data-soccer-view]").forEach(function(btn){btn.classList.toggle("active",btn.dataset.soccerView==="forecasts");});
+    var payload={date_from:dateFrom,date_to:dateTo||null,competition_id:$("soccer-filter-comp").value||null};
+    await runSoccerOperation("/api/soccer/forecast",payload,"Generating soccer match probabilities from imported history…");
+  }
+  async function runSoccerBacktest(){
+    var payload={competition_id:$("soccer-filter-comp").value||null,min_history:30};
+    await runSoccerOperation("/api/soccer/backtest",payload,"Running the chronological Poisson vs Dixon-Coles backtest…");
+  }
+
   async function initialize(){
     $("workflow-date").value=localDate();$("settle-date").value=localDate();
+    $("soccer-date-from").value=localDate();$("soccer-date-to").value=localDateOffset(14);
+    setSoccerProviderMode();
     await refreshView();await loadHistory();await loadCalibration();
   }
   initialize();
