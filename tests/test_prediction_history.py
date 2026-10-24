@@ -88,3 +88,20 @@ def test_settlement_uses_match_date_not_snapshot_date():
     assert updated.loc[0, "actual_stat"] == 8
     assert updated.loc[0, "actual_over"] == 1
 
+
+def test_archive_does_not_fake_match_date_when_schedule_lookup_is_blank():
+    source = pd.DataFrame({
+        "player_id": [11],
+        "player_name": ["Demo Player"],
+        "team": ["Toronto Raptors"],
+        "team_abbreviation": ["TOR"],
+        "target": ["PTS"],
+        "line": [18.5],
+        "match_date": [""],
+        "p_over": [0.55],
+    })
+    rows = prepare_archive_rows(source, "2026-10-24", "2026-10-24T00:00:00+00:00")
+    assert rows.iloc[0]["snapshot_date"] == "2026-10-24"
+    assert rows.iloc[0]["match_date"] == ""
+    assert rows.iloc[0]["game_date"] == ""
+
