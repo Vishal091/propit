@@ -98,9 +98,12 @@ def test_backtest_uses_strictly_prior_dates_and_reports_both_models():
     assert len(day_two) == 2
     assert {p["history_matches"] for p in day_two} == {2}
     assert all(p["poisson_home_win"] + p["poisson_draw"] + p["poisson_away_win"] == pytest.approx(1) for p in predictions)
-    assert {m["model"] for m in report["models"]} == {"poisson", "dixon_coles"}
+    assert all(p["league_average_home_win"] + p["league_average_draw"] + p["league_average_away_win"] == pytest.approx(1) for p in predictions)
+    assert {m["model"] for m in report["models"]} == {"poisson", "dixon_coles", "league_average"}
     assert all(m["matches"] == 4 for m in report["models"])
     assert all(m["log_loss_1x2"] is not None and m["brier_1x2"] is not None for m in report["models"])
+    assert len(report["seasons"]) == 1
+    assert report["seasons"][0]["backtested_matches"] == 4
 
 
 def test_backtest_ignores_unfinished_matches_and_validates_options():
