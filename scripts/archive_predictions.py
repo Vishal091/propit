@@ -29,7 +29,9 @@ COLUMNS = [
     "market_books_available", "market_lines_available", "market_consensus_line", "market_line_min",
     "market_line_max", "market_line_spread", "market_rows_at_line", "same_book_no_vig_rows",
     "best_over_odds_american", "best_over_bookmaker", "best_under_odds_american", "best_under_bookmaker",
-    "market_snapshot_age_hours", "settlement_status",
+    "market_snapshot_age_hours",
+    "availability_status", "availability_gate", "availability_reason", "availability_source",
+    "availability_reported_at_utc", "availability_age_hours", "settlement_status",
 ]
 
 
@@ -57,6 +59,8 @@ def prepare_archive_rows(predictions: pd.DataFrame, game_date: str, snapshot_at_
         "bookmaker", "bookmaker_over", "bookmaker_under", "line_source", "market_source",
         "market_snapshot_at_utc", "prior_snapshot_at_utc", "market_no_vig_method",
         "best_over_bookmaker", "best_under_bookmaker",
+        "availability_status", "availability_gate", "availability_reason", "availability_source",
+        "availability_reported_at_utc",
     )
     for column in string_columns:
         out[column] = predictions[column].fillna("").astype(str).str.strip() if column in predictions else ""
@@ -85,7 +89,7 @@ def prepare_archive_rows(predictions: pd.DataFrame, game_date: str, snapshot_at_
         "market_no_vig_p_under_consensus", "market_books_available", "market_lines_available",
         "market_consensus_line", "market_line_min", "market_line_max", "market_line_spread",
         "market_rows_at_line", "same_book_no_vig_rows", "best_over_odds_american",
-        "best_under_odds_american", "market_snapshot_age_hours",
+        "best_under_odds_american", "market_snapshot_age_hours", "availability_age_hours",
     )
     for column in numeric_market_columns:
         out[column] = pd.to_numeric(predictions[column], errors="coerce") if column in predictions else float("nan")
