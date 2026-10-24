@@ -139,8 +139,16 @@ def run_rolling_backtest(
                     rates["expected_home_goals"], rates["expected_away_goals"],
                     total_goals_line=total_goals_line, rho=dixon_coles_rho,
                 )
+                league_average = predict_match(
+                    rates["league_home_goals_prior"], rates["league_away_goals_prior"],
+                    total_goals_line=total_goals_line, rho=0.0,
+                )
                 row = {
+                    "provider": match.get("provider", ""),
                     "competition_id": competition_id,
+                    "competition_name": match.get("competition_name", ""),
+                    "season_id": match.get("season_id", ""),
+                    "season_name": match.get("season_name", ""),
                     "match_id": match["match_id"],
                     "match_date": match_date,
                     "home_team": match["home_team"],
@@ -159,7 +167,11 @@ def run_rolling_backtest(
                     "total_goals_line": total_goals_line,
                     "dixon_coles_rho": dixon_coles_rho,
                 }
-                for variant, probs in (("poisson", baseline), ("dixon_coles", adjusted)):
+                for variant, probs in (
+                    ("poisson", baseline),
+                    ("dixon_coles", adjusted),
+                    ("league_average", league_average),
+                ):
                     row.update({
                         f"{variant}_home_win": probs.home_win,
                         f"{variant}_draw": probs.draw,
@@ -172,11 +184,41 @@ def run_rolling_backtest(
                 comp_predictions.append(row)
         competition_summaries.append({
             "competition_id": competition_id,
+            "competition_name": next((row.get("competition_name", "") for row in comp_rows if row.get("competition_name")), ""),
             "scored_matches_in_source": len(comp_rows),
             "backtested_matches": len(comp_predictions),
             "metrics": [
                 _metrics(comp_predictions, "poisson", total_goals_line),
                 _metrics(comp_predictions, "dixon_coles", total_goals_line),
+                _metrics(comp_predictions, "league_average", total_goals_line),
+            ],
+        })
+    season_summaries = []
+    season_groups: dict[tuple[str, str, str], list[dict[str, Any]]] = defaultdict(list)
+    for prediction in predictions:
+        season_groups[(
+            str(prediction.get("competition_id", "")),
+            str(prediction.get("season_id", "")),
+            str(prediction.get("season_name", "")),
+        )].append(prediction)
+    completed_by_season: dict[tuple[str, str, str], int] = defaultdict(int)
+    for match in completed:
+        completed_by_season[(
+            str(match.get("competition_id", "")),
+            str(match.get("season_id", "")),
+            str(match.get("season_name", "")),
+        )] += 1
+    for (competition_id, season_id, season_name), group_rows in sorted(season_groups.items()):
+        season_summaries.append({
+            "competition_id": competition_id,
+            "season_id": season_id,
+            "season_name": season_name,
+            "scored_matches_in_source": completed_by_season[(competition_id, season_id, season_name)],
+            "backtested_matches": len(group_rows),
+            "metrics": [
+                _metrics(group_rows, "poisson", total_goals_line),
+                _metrics(group_rows, "dixon_coles", total_goals_line),
+                _metrics(group_rows, "league_average", total_goals_line),
             ],
         })
     report = {
@@ -193,8 +235,10 @@ def run_rolling_backtest(
         "models": [
             _metrics(predictions, "poisson", total_goals_line),
             _metrics(predictions, "dixon_coles", total_goals_line),
+            _metrics(predictions, "league_average", total_goals_line),
         ],
         "competitions": competition_summaries,
+        "seasons": season_summaries,
         "warning": "Metrics are meaningful only for the imported coverage. The Dixon-Coles rho is a supplied experimental value, not fitted or assumed optimal.",
     }
     return predictions, report
