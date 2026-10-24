@@ -117,6 +117,50 @@ def _timestamp_age(frame: pd.DataFrame, candidates: tuple[str, ...], now: pd.Tim
     return age, int(values.notna().sum())
 
 
+def _holdout_quality(frame: pd.DataFrame | None) -> dict[str, Any]:
+    """Summarize raw/calibrated probabilities from the existing chronological holdout only."""
+    required = {"target", "actual_over", "p_over", "calibrated_p_over"}
+    if frame is None or frame.empty or not required.issubset(frame.columns):
+        return {
+            "available": False,
+            "sample_basis": "predictions/backtest_holdout.csv only",
+            "by_target": [],
+            "note": "No valid calibration holdout is available. This is not a live or in-sample performance metric.",
+        }
+    data = frame.copy()
+    data["actual_over"] = pd.to_numeric(data["actual_over"], errors="coerce")
+    data["p_over"] = pd.to_numeric(data["p_over"], errors="coerce")
+    data["calibrated_p_over"] = pd.to_numeric(data["calibrated_p_over"], errors="coerce")
+    valid = data["actual_over"].isin([0, 1]) & data["p_over"].notna() & data["calibrated_p_over"].notna()
+    data = data.loc[valid].copy()
+    if data.empty:
+        return {
+            "available": False,
+            "sample_basis": "predictions/backtest_holdout.csv only",
+            "by_target": [],
+            "note": "No valid settled holdout rows. Probability metrics are withheld.",
+        }
+    output = []
+    for target, group in data.groupby("target", sort=True):
+        y = group["actual_over"].astype(int).to_numpy()
+        entry: dict[str, Any] = {"target": str(target), "n": int(len(group))}
+        for key, column in (("raw", "p_over"), ("calibrated", "calibrated_p_over")):
+            p = group[column].clip(1e-6, 1 - 1e-6).to_numpy(dtype=float)
+            brier = float(((p - y) ** 2).mean())
+            log_loss = float((-(y * __import__("numpy").log(p) + (1 - y) * __import__("numpy").log(1 - p))).mean())
+            hit_rate = float(((p >= 0.5) == (y == 1)).mean())
+            entry[f"{key}_brier"] = round(brier, 4)
+            entry[f"{key}_log_loss"] = round(log_loss, 4)
+            entry[f"{key}_hit_rate"] = round(hit_rate, 4)
+        output.append(entry)
+    return {
+        "available": True,
+        "sample_basis": "predictions/backtest_holdout.csv only",
+        "by_target": output,
+        "note": "Descriptive metrics from the saved chronological holdout. Lower Brier/log loss is better; these metrics do not guarantee future performance or profitability.",
+    }
+
+
 def build_health_report(root: str | Path = DEFAULT_ROOT, now: str | datetime | pd.Timestamp | None = None) -> dict[str, Any]:
     """Summarize local data readiness, freshness, history and recent workflow failures."""
     base = Path(root).resolve()
@@ -228,6 +272,7 @@ def build_health_report(root: str | Path = DEFAULT_ROOT, now: str | datetime | p
 
     holdout_path = predictions / "backtest_holdout.csv"
     holdout, holdout_error = _csv_read(holdout_path)
+    performance = _holdout_quality(holdout)
     if holdout_error == "missing":
         checks.append(_check("Calibration holdout", "WARN", "No out-of-sample holdout report yet."))
     elif holdout_error:
@@ -274,6 +319,7 @@ def build_health_report(root: str | Path = DEFAULT_ROOT, now: str | datetime | p
         "overall": overall,
         "root": str(base),
         "checks": checks,
+        "performance": performance,
         "summary": {
             "check_count": len(checks),
             "ok": statuses.count("OK"),
@@ -314,7 +360,26 @@ def render_markdown_report(report: dict[str, Any]) -> str:
     summary = report.get("summary", {})
     lines.extend([
         "",
-        "## Activity and ledger",
+        "## Holdout probability quality",
+        "",
+    ])
+    performance = report.get("performance", {})
+    quality_rows = performance.get("by_target", []) if performance.get("available") else []
+    if quality_rows:
+        lines.extend([
+            "| Stat | N | Raw Brier | Calibrated Brier | Raw log loss | Calibrated log loss | Raw hit rate | Calibrated hit rate |",
+            "|---|---:|---:|---:|---:|---:|---:|---:|",
+        ])
+        for item in quality_rows:
+            lines.append(
+                f"| {item.get('target', '')} | {item.get('n', 0)} | {item.get('raw_brier', '—')} | "
+                f"{item.get('calibrated_brier', '—')} | {item.get('raw_log_loss', '—')} | "
+                f"{item.get('calibrated_log_loss', '—')} | {item.get('raw_hit_rate', '—')} | "
+                f"{item.get('calibrated_hit_rate', '—')} |"
+            )
+    else:
+        lines.append("No valid chronological holdout metrics are available yet.")
+    lines.extend([str(performance.get("note", "Metrics are unavailable.")), "", "## Activity and ledger", "",
         "",
         f"- Archived props: {summary.get('history', {}).get('settled', 0) + summary.get('history', {}).get('pending', 0) + summary.get('history', {}).get('push', 0)}",
         f"- Settled: {summary.get('history', {}).get('settled', 0)}; pending: {summary.get('history', {}).get('pending', 0)}; pushes: {summary.get('history', {}).get('push', 0)}",
