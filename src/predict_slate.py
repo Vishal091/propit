@@ -11,6 +11,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pandas as pd
 
 from src.data.nba_client import get_active_players, get_league_game_log
