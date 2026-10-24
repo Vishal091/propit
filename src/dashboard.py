@@ -517,9 +517,11 @@ def api_soccer_odds_import(request: SoccerOddsImportRequest) -> dict[str, Any]:
     result = _run_steps([("scripts.import_soccer_odds", args)])
     result["odds_state"] = _soccer_odds_state()
     if request.mode == "historical":
+        league_count = 1 if request.league != "all" else 5
         result["historical_cost_note"] = (
-            "Estimate: 10 credits per market per region per league. This import requested "
-            f"{1 if request.league != 'all' else 5} league(s), one UK region and one 1X2 market."
+            "Estimate: 10 credits per market per region per league. "
+            f"Estimated total: {league_count * 10} credits for {league_count} league(s), "
+            "one UK region and one 1X2 market. Empty responses may cost less."
         )
     return result
 
