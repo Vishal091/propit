@@ -145,8 +145,14 @@ def _player_team_metadata(games: pd.DataFrame) -> dict[int, dict[str, str]]:
             latest.get("TEAM_CITY"), latest.get("TEAM_NAME"), latest.get("TEAM_ABBREVIATION")
         )
         if team or abbreviation:
-            metadata[pid] = {"team": team, "team_abbreviation": abbreviation}
-            team_id = _number_or_none(latest.get("TEAM_ID"))
+            prior = metadata.get(pid, {})
+            metadata[pid] = {
+                "team": team or str(prior.get("team") or ""),
+                "team_abbreviation": abbreviation or str(prior.get("team_abbreviation") or ""),
+            }
+            team_id = _number_or_none(prior.get("team_id"))
+            if team_id is None:
+                team_id = _number_or_none(latest.get("TEAM_ID"))
             if team_id is not None:
                 metadata[pid]["team_id"] = int(team_id)
     return metadata
