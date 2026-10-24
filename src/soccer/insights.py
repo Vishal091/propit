@@ -43,7 +43,7 @@ def canonical_top_five_league(row: Any) -> str | None:
             or "spain laliga" in joined or "espana laliga" in joined
             or "spain 1 liga" in joined or "espana 1 liga" in joined):
         return "La Liga"
-    if ("bundesliga" in name or "germany bundesliga" in joined or "deutschland bundesliga" in joined):
+    if ("bundesliga" in name or "germany bundesliga" in joined or "deutschland bundesliga" in joined\n            or "germany 1 bundesliga" in joined or "deutschland 1 bundesliga" in joined):
         if "2 bundesliga" not in name and "zweite" not in name:
             return "Bundesliga"
     if (name in {"serie a", "italian serie a"} or "italy seriea" in joined
@@ -206,7 +206,7 @@ def build_calibration_report(
             predicted = max(probabilities, key=lambda key: probabilities[key])
             confidence = float(probabilities[predicted])
             selected.append({
-                "model": model, "match_date": str(_get(row, "match_date", "") or ""),
+                "model": model, "match_id": str(_get(row, "match_id", "") or (comp_id + ":" + str(_get(row, "match_date", "") or ""))),\n                "match_date": str(_get(row, "match_date", "") or ""),
                 "actual": actual, "predicted": predicted, "confidence": confidence,
                 "correct": int(predicted == actual),
             })
@@ -247,7 +247,7 @@ def build_calibration_report(
         "method": "Top-class confidence reliability over rolling-origin backtest predictions; no calibration transform is fitted.",
         "bins_requested": bins,
         "minimum_samples": min_samples,
-        "matches_evaluated": len({(item["match_date"], item["model"]) for item in selected}),
+        "matches_evaluated": len({item["match_id"] for item in selected}),
         "model_reports": model_reports,
         "warning": "Calibration describes historical out-of-sample predictions only. It does not establish profitability or future accuracy.",
     }
