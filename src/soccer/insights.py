@@ -43,7 +43,8 @@ def canonical_top_five_league(row: Any) -> str | None:
             or "spain laliga" in joined or "espana laliga" in joined
             or "spain 1 liga" in joined or "espana 1 liga" in joined):
         return "La Liga"
-    if ("bundesliga" in name or "germany bundesliga" in joined or "deutschland bundesliga" in joined\n            or "germany 1 bundesliga" in joined or "deutschland 1 bundesliga" in joined):
+    if ("bundesliga" in name or "germany bundesliga" in joined or "deutschland bundesliga" in joined
+            or "germany 1 bundesliga" in joined or "deutschland 1 bundesliga" in joined):
         if "2 bundesliga" not in name and "zweite" not in name:
             return "Bundesliga"
     if (name in {"serie a", "italian serie a"} or "italy seriea" in joined
@@ -206,7 +207,8 @@ def build_calibration_report(
             predicted = max(probabilities, key=lambda key: probabilities[key])
             confidence = float(probabilities[predicted])
             selected.append({
-                "model": model, "match_id": str(_get(row, "match_id", "") or (comp_id + ":" + str(_get(row, "match_date", "") or ""))),\n                "match_date": str(_get(row, "match_date", "") or ""),
+                "model": model, "match_id": str(_get(row, "match_id", "") or (comp_id + ":" + str(_get(row, "match_date", "") or ""))),
+                "match_date": str(_get(row, "match_date", "") or ""),
                 "actual": actual, "predicted": predicted, "confidence": confidence,
                 "correct": int(predicted == actual),
             })
