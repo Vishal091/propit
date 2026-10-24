@@ -21,7 +21,8 @@ COLUMNS = [
     "target", "line", "p_over", "actual_over", "actual_stat",
     "odds_over_american", "odds_under_american", "bookmaker", "bookmaker_over", "bookmaker_under",
     "line_source", "market_source", "market_snapshot_at_utc", "prior_snapshot_at_utc",
-    "previous_line", "previous_odds_over", "previous_odds_under", "line_move_from_previous",
+    "opening_line", "source_line_move", "previous_line", "previous_odds_over", "previous_odds_under",
+    "line_move_from_previous", "line_move_from_open",
     "over_decimal_odds_move", "under_decimal_odds_move", "market_prior_snapshot_count",
     "market_no_vig_method", "market_no_vig_p_over", "market_no_vig_p_under",
     "market_no_vig_p_over_consensus", "market_no_vig_p_under_consensus",
@@ -77,7 +78,8 @@ def prepare_archive_rows(predictions: pd.DataFrame, game_date: str, snapshot_at_
     for column in ("odds_over_american", "odds_under_american"):
         out[column] = pd.to_numeric(predictions.get(column, pd.Series(index=predictions.index, dtype=float)), errors="coerce")
     numeric_market_columns = (
-        "previous_line", "previous_odds_over", "previous_odds_under", "line_move_from_previous",
+        "opening_line", "source_line_move", "previous_line", "previous_odds_over", "previous_odds_under",
+        "line_move_from_previous", "line_move_from_open",
         "over_decimal_odds_move", "under_decimal_odds_move", "market_prior_snapshot_count",
         "market_no_vig_p_over", "market_no_vig_p_under", "market_no_vig_p_over_consensus",
         "market_no_vig_p_under_consensus", "market_books_available", "market_lines_available",
