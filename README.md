@@ -54,6 +54,23 @@ The slate comparison consolidates same player/stat/line rows and uses the best o
 
 Market quote age means when PropIt captured the page, not when the provider last changed its quote. Public snapshot rows older than 12 hours are blocked from the shortlist by default; change this intentionally with --max-market-age-hours. The page can still show these rows in All markets for inspection. Movement since the last import requires at least two successful refreshes. Do not interpret missing data as a pick, and verify current line, price, player ID and local availability independently.
 
+## Player availability and shortlist safeguards
+
+PropIt does **not** infer availability from recent box scores and does not automatically scrape an injury feed. Use the current [official NBA injury report](https://official.nba.com/nba-injury-report-2026-27-season/) or another source you independently trust, then maintain a point-in-time CSV for players whose status you checked.
+
+Start from the empty template:
+
+    Copy-Item data\player_availability.example.csv data\player_availability.csv
+    notepad data\player_availability.csv
+
+Required columns are `player_id,match_date,status,reported_at_utc`. Optional columns are `player_name,team_abbreviation,reason,source`. Use the NBA player ID, the player's **scheduled match date** (YYYY-MM-DD), the status shown by the source, and the time you checked it as an ISO-8601 UTC timestamp (for example `2026-10-25T15:15:00Z`). Use one row per player/date and refresh it when a report changes. The template is header-only; do not enter example statuses as if they were verified.
+
+The slate shows the status and freshness gate. Fresh `Available`/`Probable` reports are CLEAR; `Out`, `Inactive`, `Suspended`, or `Rest` blocks a row; `Questionable`/`Doubtful` forces review and removes the row from the shortlist. Statuses older than six hours, unrecognized statuses, missing records, or mismatched dates/teams are marked STALE/UNVERIFIED rather than silently treated as healthy. In the normal dashboard flow, unverified rows can still appear as model candidates, but their availability gate and warning are shown explicitly. To fail closed and only shortlist rows with a fresh Available/Probable status, run:
+
+    .\.venv\Scripts\python.exe -m src.predict_slate --lines data\prop_lines_public.csv --require-verified-availability
+
+The flag affects shortlist eligibility, not the all-markets audit output. This is an operator-maintained safeguard, **not** an automatic injury feed; confirm status close to tip-off because the official report can update during the day.
+
 ## Run the local dashboard
 
 PropIt includes a browser-based local dashboard with tabs for Overview, Today's Slate, History & Results, and Calibration. It uses the project's existing FastAPI/Uvicorn dependencies and keeps data files behind the interface.
@@ -67,7 +84,7 @@ Then open http://127.0.0.1:8766 in your browser. Keep the PowerShell window open
 
 Use **Refresh Slate** to import the public prop board and regenerate model predictions. Use **Run Pregame Workflow** to do those steps and archive one snapshot for the selected snapshot date in one action; only run it before tip-off. PropIt uses the current NBA roster when team metadata is available and the public NBA schedule to attach each player's team, next scheduled match date, and opponent. The public prop page's Match column is generic, so these match details come from the NBA schedule rather than the market page. If a player or schedule cannot be matched, the match date remains blank instead of being replaced with the snapshot date. Use **History & Results** to settle a specific match date after the public NBA game logs update, and **Calibration** to run the chronological holdout evaluation when enough settled history exists. The activity log shows command output and errors, so a blocked public endpoint or missing model artifact is visible rather than silently ignored.
 
-The CSV files remain internal storage for the existing pipeline and audit trail; normal viewing and workflow actions happen in the dashboard. No bets are placed automatically. Verify public lines and prices independently.
+The market and prediction CSVs remain internal storage for the pipeline and audit trail; availability is the exception and is supplied through data/player_availability.csv when you choose to record a verified report. The dashboard displays availability but does not edit or fetch the injury report for you. No bets are placed automatically. Verify public lines, prices, and player status independently.
 ## Start a persistent pregame history
 
 The current output files are overwritten on each prediction run. To evaluate probabilities later, save a slate to a persistent history file **before tip-off**. This records the exact line, both odds, model probability, player ID, the snapshot date, and the player's match date when schedule mapping succeeds.
