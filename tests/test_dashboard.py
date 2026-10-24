@@ -122,7 +122,7 @@ def test_dashboard_audit_endpoint_reads_latest_workflow_events(tmp_path, monkeyp
         "timestamp_utc": "2026-10-24T12:00:00Z",
         "ok": True,
         "steps": [],
-    }) + "\\n", encoding="utf-8")
+    }) + "\n", encoding="utf-8")
 
     result = dashboard.api_audit(limit=5)
     assert result["count"] == 1
