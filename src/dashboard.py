@@ -20,6 +20,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from src.operations import append_audit_event, build_health_report, read_audit_events
+from src.soccer.insights import build_best_picks, build_calibration_report, canonical_top_five_league
 
 ROOT = Path(__file__).resolve().parents[1]
 DATA = ROOT / "data"
@@ -371,6 +372,75 @@ def api_soccer_forecasts(
     if sort_cols:
         frame = frame.sort_values(sort_cols, ascending=True, kind="stable", na_position="last")
     return {"available": True, "count": int(len(frame)), "rows": _records(frame.head(limit))}
+
+
+@app.get("/api/soccer/picks")
+def api_soccer_picks(
+    date_from: str | None = Query(default=None, max_length=10),
+    date_to: str | None = Query(default=None, max_length=10),
+    min_history_matches: int = Query(default=8, ge=0, le=10000),
+    min_probability: float = Query(default=0.52, ge=0, le=1),
+    limit: int = Query(default=25, ge=1, le=500),
+) -> dict[str, Any]:
+    """Return ranked model-only picks for the top five European domestic leagues."""
+    frame = _read_csv(SOCCER_UPCOMING)
+    if frame.empty:
+        return {
+            "available": False, "count": 0, "rows": [],
+            "message": "No saved soccer forecasts yet. Import fixtures/results, then generate forecasts.",
+            "eligible_leagues": ["Premier League", "La Liga", "Bundesliga", "Serie A", "Ligue 1"],
+        }
+    try:
+        start = _validate_game_date(date_from) if date_from else None
+        end = _validate_game_date(date_to) if date_to else None
+        if start and end and end < start:
+            raise ValueError("date_to must be on or after date_from")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if start and "match_date" in frame.columns:
+        dates = pd.to_datetime(frame["match_date"], errors="coerce")
+        frame = frame[dates >= pd.Timestamp(start)]
+    if end and "match_date" in frame.columns:
+        dates = pd.to_datetime(frame["match_date"], errors="coerce")
+        frame = frame[dates <= pd.Timestamp(end)]
+    picks = build_best_picks(
+        _records(frame), min_history_matches=min_history_matches,
+        min_probability=min_probability, limit=limit,
+    )
+    return {
+        "available": bool(picks), "count": len(picks), "rows": picks,
+        "eligible_leagues": ["Premier League", "La Liga", "Bundesliga", "Serie A", "Ligue 1"],
+        "min_history_matches": min_history_matches, "min_probability": min_probability,
+        "method": "One strongest independent-Poisson market per fixture; ranked with a historical-sample support adjustment.",
+        "message": "No pick met the top-five-league, sample-history, and probability filters." if not picks else "",
+        "warning": "No sportsbook odds, lineups, or injury information are included. This is a model-confidence ranking, not an odds-based value/EV recommendation.",
+    }
+
+
+@app.get("/api/soccer/calibration")
+def api_soccer_calibration(
+    bins: int = Query(default=10, ge=2, le=20),
+    min_samples: int = Query(default=30, ge=1, le=100000),
+) -> dict[str, Any]:
+    """Summarize top-five-league reliability from saved chronological backtest predictions."""
+    matches = _read_csv(SOCCER_MATCHES)
+    backtest = _read_csv(SOCCER_BACKTEST)
+    eligible_ids = {
+        str(row.get("competition_id", ""))
+        for row in _records(matches)
+        if row.get("competition_id") and canonical_top_five_league(row)
+    }
+    report = build_calibration_report(
+        _records(backtest), competition_ids=eligible_ids,
+        bins=bins, min_samples=min_samples,
+    )
+    report["eligible_leagues"] = ["Premier League", "La Liga", "Bundesliga", "Serie A", "Ligue 1"]
+    report["eligible_competitions"] = len(eligible_ids)
+    if not eligible_ids:
+        report["message"] = "Import recognized top-five league results first."
+    elif backtest.empty:
+        report["message"] = "Run the chronological soccer backtest to generate out-of-sample predictions."
+    return report
 
 
 @app.get("/api/soccer/metrics")
