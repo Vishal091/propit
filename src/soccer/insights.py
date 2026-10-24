@@ -385,7 +385,7 @@ def attach_market_odds(
             if (quote_age < 0 or snapshot_age < 0 or hours_to_kickoff <= 0
                     or hours_to_kickoff > max_hours_before_kickoff
                     or quote_age > max_quote_age_minutes or snapshot_age > max_snapshot_age_minutes
-                    or quote_time > kickoff or snapshot_time > kickoff):
+                    or quote_time > snapshot_time or quote_time > kickoff or snapshot_time > kickoff):
                 stale_match_seen = True
                 continue
             try:
