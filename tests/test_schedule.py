@@ -2,7 +2,14 @@ from __future__ import annotations
 
 from datetime import date
 
-from src.data.schedule import _as_date, build_espn_next_game_map, build_next_game_map
+import requests
+
+from src.data.schedule import (
+    _as_date,
+    build_espn_next_game_map,
+    build_next_game_map,
+    get_next_game_map,
+)
 
 
 def _game(day, status, home, away):
@@ -89,13 +96,20 @@ def test_next_game_map_does_not_invent_dates_for_teams_without_upcoming_games():
 
 
 def _espn_event(day, state, home_abbr="CHI", away_abbr="BKN"):
+    team_names = {
+        "CHI": "Chicago Bulls",
+        "BKN": "Brooklyn Nets",
+        "MIL": "Milwaukee Bucks",
+        "GS": "Golden State Warriors",
+        "NY": "New York Knicks",
+    }
     return {
         "date": f"{day}T23:30:00Z",
         "status": {"type": {"state": state, "completed": state == "post"}},
         "competitions": [{
             "competitors": [
-                {"homeAway": "home", "team": {"abbreviation": home_abbr, "displayName": "Chicago Bulls"}},
-                {"homeAway": "away", "team": {"abbreviation": away_abbr, "displayName": "Brooklyn Nets"}},
+                {"homeAway": "home", "team": {"abbreviation": home_abbr, "displayName": team_names.get(home_abbr, home_abbr)}},
+                {"homeAway": "away", "team": {"abbreviation": away_abbr, "displayName": team_names.get(away_abbr, away_abbr)}},
             ]
         }],
     }
@@ -114,7 +128,7 @@ def test_espn_schedule_map_adds_team_opponent_date_and_home_away():
 
     # 23:30 UTC is 19:30 US Eastern during daylight time, i.e. still Oct 25.
     assert result["CHI"]["match_date"] == "2026-10-26"
-    assert result["CHI"]["opponent_team"] == "Brooklyn Nets"
+    assert result["CHI"]["opponent_team"] == "Milwaukee Bucks"
     assert result["CHI"]["opponent_abbreviation"] == "MIL"
     assert result["CHI"]["home_away"] == "HOME"
     assert result["BKN"]["match_date"] == "2026-10-27"
@@ -136,3 +150,36 @@ def test_espn_schedule_map_does_not_require_exactly_two_calendar_days():
     # 23:30 UTC on Oct 24 is 19:30 US Eastern and remains Oct 24.
     result = build_espn_next_game_map(payloads, as_of=date(2026, 10, 24))
     assert result["CHI"]["match_date"] == "2026-10-24"
+
+
+
+def test_get_next_game_map_uses_espn_when_nba_cdn_is_unavailable(tmp_path, monkeypatch):
+    import src.data.schedule as schedule
+
+    monkeypatch.setattr(schedule, "ESPN_CACHE_PATH", tmp_path / "espn_cache.json")
+    monkeypatch.setattr(schedule, "CACHE_PATH", tmp_path / "nba_cache.json")
+
+    class FakeResponse:
+        def __init__(self, payload):
+            self.payload = payload
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return self.payload
+
+    def fake_get(url, **kwargs):
+        if url == schedule.ESPN_SCOREBOARD_URL:
+            requested_day = kwargs.get("params", {}).get("dates")
+            events = [_espn_event("2026-10-25", "pre")] if requested_day == "20261025" else []
+            return FakeResponse({"events": events})
+        raise requests.ConnectionError("simulated NBA CDN block")
+
+    monkeypatch.setattr(schedule.requests, "get", fake_get)
+
+    result = get_next_game_map(as_of=date(2026, 10, 24), force_refresh=True)
+
+    assert result["CHI"]["match_date"] == "2026-10-25"
+    assert result["CHI"]["opponent_team"] == "Brooklyn Nets"
+    assert result["BKN"]["opponent_abbreviation"] == "CHI"
