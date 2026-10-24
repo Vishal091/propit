@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from scripts.fetch_public_props import normalize_name, parse_odds_and_book, parse_props_html
+from scripts.fetch_public_props import _merge_market_rows, _page_has_more_rows, normalize_name, parse_odds_and_book, parse_props_html
 
 
 def test_normalize_name_accent_and_punctuation():
@@ -101,4 +101,28 @@ def test_parse_flash_odds_public_html_table_with_bare_odds():
     assert by_name["Aaron Wiggins"]["bookmaker"] == "Flash Odds public board (over Underdog; under Underdog)"
     assert by_name["Alex Sarr"]["line"] == 14.5
     assert by_name["Alex Sarr"]["odds_over"] == 104
+
+def test_detect_partial_public_board_and_merge_rendered_rows():
+    html = "<html><body><p>50 shown of 143 points lines</p><button>Load 50 more</button></body></html>"
+    assert _page_has_more_rows(html)
+
+    static = [
+        {"player_name": "Aaron Wiggins", "target": "PTS", "line": 9.5, "odds_over": 165, "odds_under": -204},
+    ]
+    rendered = [
+        {"player_name": "Aaron Wiggins", "target": "PTS", "line": 9.5, "odds_over": 170, "odds_under": -210},
+        {"player_name": "Alex Sarr", "target": "PTS", "line": 14.5, "odds_over": 104, "odds_under": -128},
+    ]
+    merged = _merge_market_rows(static, rendered)
+    assert len(merged) == 2
+    assert next(row for row in merged if row["player_name"] == "Aaron Wiggins")["odds_over"] == 170
+    assert next(row for row in merged if row["player_name"] == "Alex Sarr")["line"] == 14.5
+
+
+def test_extract_row_odds_including_unsigned_positive():
+    from scripts.fetch_public_props import _extract_row_odds
+    assert _extract_row_odds("Aaron Wiggins 9.5 165 -204 game") == [
+        (165.0, "Underdog"),
+        (-204.0, "Underdog"),
+    ]
 
