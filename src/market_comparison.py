@@ -421,6 +421,12 @@ def record_market_snapshot(
         under_decimal_moves.append(current_under_decimal - old_under_decimal if current_under_decimal is not None and old_under_decimal is not None else None)
 
     out["previous_line"] = previous_lines
+    out["line_move_from_open"] = [
+        (_numeric(row.get("line")) - _numeric(row.get("opening_line")))
+        if _numeric(row.get("line")) is not None and _numeric(row.get("opening_line")) is not None
+        else None
+        for row in out.to_dict(orient="records")
+    ]
     out["previous_odds_over"] = previous_over
     out["previous_odds_under"] = previous_under
     out["prior_snapshot_at_utc"] = previous_stamp
@@ -437,7 +443,13 @@ def record_market_snapshot(
     id_col = combined.apply(_player_key, axis=1)
     target_col = combined.get("target", pd.Series("", index=combined.index)).fillna("").astype(str).str.upper().str.strip()
     source_col = combined.get("market_source", pd.Series("", index=combined.index)).fillna("").astype(str).str.strip()
-    combined["_history_key"] = id_col + "|" + target_col + "|" + source_col + "|" + snapshot_col
+    line_col = pd.to_numeric(combined.get("line", pd.Series(np.nan, index=combined.index)), errors="coerce").fillna(-999).map(lambda value: f"{value:.4f}")
+    over_book_col = combined.get("bookmaker_over", pd.Series("", index=combined.index)).fillna("").astype(str).str.strip()
+    under_book_col = combined.get("bookmaker_under", pd.Series("", index=combined.index)).fillna("").astype(str).str.strip()
+    combined["_history_key"] = (
+        id_col + "|" + target_col + "|" + source_col + "|" + line_col + "|"
+        + over_book_col + "|" + under_book_col + "|" + snapshot_col
+    )
     combined = combined.drop_duplicates("_history_key", keep="last").drop(columns=["_history_key"])
     combined.to_csv(history_path, index=False)
     return out
