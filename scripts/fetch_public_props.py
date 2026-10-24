@@ -264,6 +264,93 @@ def load_canonical_players() -> dict[str, tuple[int, str]]:
         return {}
 
 
+def fetch_rendered_html(url: str, canonical_players: dict[str, tuple[int, str]], timeout_seconds: int = 30) -> str:
+    """Render the JS-driven public board in headless Chrome if static HTML is only a shell."""
+    try:
+        from selenium import webdriver
+        from selenium.common.exceptions import TimeoutException, WebDriverException
+        from selenium.webdriver.common.by import By
+        from selenium.webdriver.support.ui import WebDriverWait
+    except ImportError as exc:
+        raise RuntimeError(
+            "This board needs browser rendering, but Selenium is missing. "
+            "Run .\\.venv\\Scripts\\python.exe -m pip install -r requirements.txt"
+        ) from exc
+
+    options = webdriver.ChromeOptions()
+    options.add_argument("--headless=new")
+    options.add_argument("--disable-gpu")
+    options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--no-sandbox")
+    options.add_argument("--window-size=1440,2200")
+    options.add_argument("--user-agent=" + HEADERS["User-Agent"])
+    options.page_load_strategy = "eager"
+
+    driver = None
+    try:
+        driver = webdriver.Chrome(options=options)
+        driver.set_page_load_timeout(45)
+        driver.get(url)
+
+        def body_text(current_driver: Any) -> str:
+            return str(current_driver.execute_script(
+                "return document.body ? document.body.innerText : ''"
+            ) or "")
+
+        player_keys = tuple(canonical_players.keys())
+
+        def market_is_rendered(current_driver: Any) -> bool:
+            text = body_text(current_driver)
+            compact = normalize_name(text)
+            return any(key and key in compact for key in player_keys) and len(ODDS_RE.findall(text)) >= 2
+
+        WebDriverWait(driver, timeout_seconds, poll_frequency=0.4).until(market_is_rendered)
+        log.info("browser rendered %s page; attempting to load more visible markets", url)
+
+        # Some boards expose 50 rows first and a Load more control.
+        for _ in range(8):
+            before = body_text(driver)
+            load_more = None
+            for element in driver.find_elements(By.CSS_SELECTOR, "button, a"):
+                label = " ".join((element.text or "").split()).casefold()
+                if re.search(r"load(\s+\d+)?\s+more", label) and element.is_displayed() and element.is_enabled():
+                    load_more = element
+                    break
+            if load_more is None:
+                break
+            try:
+                load_more.click()
+                WebDriverWait(driver, 8, poll_frequency=0.25).until(
+                    lambda current_driver: len(body_text(current_driver)) > len(before)
+                )
+            except TimeoutException:
+                log.warning("Load more control did not reveal additional market text for %s", url)
+                break
+            except WebDriverException as exc:
+                log.warning("could not click Load more on %s: %s", url, exc)
+                break
+
+        html = driver.page_source
+        log.info("captured %s browser-rendered HTML bytes from %s", len(html), url)
+        return html
+    except TimeoutException as exc:
+        raise RuntimeError(
+            f"Chrome opened {url}, but no player rows with sportsbook prices appeared within "
+            f"{timeout_seconds} seconds. The page may be blocked or the board may be empty."
+        ) from exc
+    except WebDriverException as exc:
+        raise RuntimeError(
+            f"Could not start or control headless Chrome for {url}: {exc}. "
+            "Confirm Chrome is installed and Selenium Manager can download the matching driver."
+        ) from exc
+    finally:
+        if driver is not None:
+            try:
+                driver.quit()
+            except WebDriverException:
+                pass
+
+
 def fetch_all(output: Path) -> pd.DataFrame:
     players = load_canonical_players()
     session = requests.Session()
@@ -299,22 +386,23 @@ def fetch_all(output: Path) -> pd.DataFrame:
         log.info("resolved %s source URL to %s (%s HTML bytes)", target, response.url, len(response.content))
         try:
             rows = parse_props_html(response.text, target, players)
-        except ValueError as exc:
-            page = BeautifulSoup(response.text, "html.parser")
-            title = page.title.get_text(" ", strip=True) if page.title else "(no HTML title)"
-            role_rows = len(page.select('[role="row"], [role="gridcell"], [role="listitem"]'))
-            log.error(
-                "unable to parse %s page: requested_url=%s final_url=%s title=%r bytes=%s "
-                "tables=%s semantic_rows=%s: %s",
-                target, url, response.url, title, len(response.content),
-                len(page.find_all("table")), role_rows, exc,
-            )
-            raise RuntimeError(
-                f"Could not extract {target} markets from {response.url}. "
-                f"Page title: {title!r}; HTML bytes: {len(response.content)}; "
-                f"tables: {len(page.find_all('table'))}; semantic rows: {role_rows}. "
-                f"{exc}"
-            ) from exc
+        except ValueError as static_exc:
+            rows = []
+            log.warning("static HTML did not expose %s market rows: %s", target, static_exc)
+        if not rows:
+            rendered_html = fetch_rendered_html(url, players)
+            try:
+                rows = parse_props_html(rendered_html, target, players)
+            except ValueError as rendered_exc:
+                page = BeautifulSoup(rendered_html, "html.parser")
+                title = page.title.get_text(" ", strip=True) if page.title else "(no HTML title)"
+                role_rows = len(page.select('[role="row"], [role="gridcell"], [role="listitem"]'))
+                raise RuntimeError(
+                    f"Chrome rendered the {target} page but no usable player markets were found. "
+                    f"Title: {title!r}; HTML bytes: {len(rendered_html)}; "
+                    f"tables: {len(page.find_all('table'))}; semantic rows: {role_rows}. "
+                    f"{rendered_exc}"
+                ) from rendered_exc
         log.info("parsed %s usable %s rows", len(rows), target)
         all_rows.extend(rows)
     if not all_rows:
