@@ -361,6 +361,32 @@ def fetch_rendered_html(url: str, canonical_players: dict[str, tuple[int, str]],
                 pass
 
 
+def _page_has_more_rows(html: str) -> bool:
+    """Detect a public board that explicitly reports more rows than are rendered."""
+    soup = BeautifulSoup(html, "html.parser")
+    text = " ".join(soup.get_text(" ", strip=True).split())
+    match = re.search(r"\b(\d+)\s+shown\s+of\s+(\d+)\b", text, re.I)
+    if match and int(match.group(1)) < int(match.group(2)):
+        return True
+    return bool(re.search(r"\bload\s+\d+\s+more\b", text, re.I))
+
+
+def _merge_market_rows(
+    static_rows: list[dict[str, Any]],
+    rendered_rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Merge static/browser rows without duplicating the same player/stat/line."""
+    merged: dict[tuple[str, str, float], dict[str, Any]] = {}
+    for row in [*static_rows, *rendered_rows]:
+        try:
+            key = (normalize_name(str(row["player_name"])), str(row["target"]), float(row["line"]))
+        except (KeyError, TypeError, ValueError):
+            continue
+        if key[0] and key[2] % 1 != 0:
+            merged[key] = row
+    return list(merged.values())
+
+
 def fetch_all(output: Path) -> pd.DataFrame:
     players = load_canonical_players()
     session = requests.Session()
@@ -399,20 +425,24 @@ def fetch_all(output: Path) -> pd.DataFrame:
         except ValueError as static_exc:
             rows = []
             log.warning("static HTML did not expose %s market rows: %s", target, static_exc)
-        if not rows:
-            rendered_html = fetch_rendered_html(url, players)
+
+        needs_more = _page_has_more_rows(response.text)
+        if needs_more:
+            log.info("public %s page indicates that more rows are available; asking the browser to load them", target)
+        if not rows or needs_more:
             try:
-                rows = parse_props_html(rendered_html, target, players)
-            except ValueError as rendered_exc:
-                page = BeautifulSoup(rendered_html, "html.parser")
-                title = page.title.get_text(" ", strip=True) if page.title else "(no HTML title)"
-                role_rows = len(page.select('[role="row"], [role="gridcell"], [role="listitem"]'))
-                raise RuntimeError(
-                    f"Chrome rendered the {target} page but no usable player markets were found. "
-                    f"Title: {title!r}; HTML bytes: {len(rendered_html)}; "
-                    f"tables: {len(page.find_all('table'))}; semantic rows: {role_rows}. "
-                    f"{rendered_exc}"
-                ) from rendered_exc
+                rendered_html = fetch_rendered_html(url, players)
+                rendered_rows = parse_props_html(rendered_html, target, players)
+                if rendered_rows:
+                    rows = _merge_market_rows(rows, rendered_rows)
+                    log.info("combined static and browser-rendered %s rows into %s unique markets", target, len(rows))
+            except (RuntimeError, ValueError) as render_exc:
+                if not rows:
+                    raise RuntimeError(f"Could not get usable {target} markets from static HTML or headless Chrome: {render_exc}") from render_exc
+                log.warning(
+                    "browser rendering for %s could not expand the static result (%s); continuing with %s rows",
+                    target, render_exc, len(rows),
+                )
         log.info("parsed %s usable %s rows", len(rows), target)
         all_rows.extend(rows)
     if not all_rows:
