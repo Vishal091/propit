@@ -328,13 +328,17 @@ def attach_market_odds(
         away_key = _team_match_key(pick.get("away_team"))
         pick_date = str(pick.get("match_date") or "")[:10]
         event_rows: list[dict[str, Any]] = []
+        pre_kickoff_failed = False
         for item in odds:
             if league_key and str(item.get("sport_key") or "") != league_key:
                 continue
             if _team_match_key(item.get("home_team")) != home_key or _team_match_key(item.get("away_team")) != away_key:
                 continue
             event_time = _parse_utc(item.get("event_commence_time_utc"))
-            if event_time is None or event_time <= now:
+            if event_time is None:
+                continue
+            if event_time <= now:
+                pre_kickoff_failed = True
                 continue
             try:
                 odds_date = event_time.date()
@@ -344,6 +348,8 @@ def attach_market_odds(
             if abs((odds_date - target_date).days) > 1:
                 continue
             event_rows.append(item)
+        if not event_rows and pre_kickoff_failed:
+            pick["odds_status"] = "STALE OR NOT PRE-KICKOFF"
 
         candidates = []
         stale_match_seen = False
