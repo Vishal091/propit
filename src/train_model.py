@@ -45,13 +45,33 @@ def main() -> None:
     games = assemble_training_frame()
     log.info("assembled %s rows across %s distinct players", len(games), games["PLAYER_ID"].nunique())
     team_metrics = build_team_game_metrics(games)
+    if team_metrics.empty:
+        raise RuntimeError(
+            "Could not build time-aware opponent metrics. Confirm game logs include TEAM_ID, "
+            "OPPONENT_TEAM_ID, PTS, FGA, FTA, OREB and TOV; refusing to train with fixed defaults."
+        )
+    context_stds = team_metrics[["DEF_RATING", "PACE"]].std(ddof=0)
+    if context_stds.isna().any() or (context_stds <= 1e-6).any():
+        raise RuntimeError(
+            "Opponent metrics have no usable variation; check the source logs before training."
+        )
     log.info(
         "built time-aware opponent metrics from %s team-game rows across %s teams",
-        len(team_metrics), team_metrics["TEAM_ID"].nunique() if not team_metrics.empty else 0,
+        len(team_metrics), team_metrics["TEAM_ID"].nunique(),
     )
     trained_targets = 0
     for target in ("PTS", "REB", "AST"):
         feats = build_player_features(games, target=target, opponent_team_metrics=team_metrics)
+        feature_context_stds = feats[["opp_def_rating", "opp_pace"]].std(ddof=0)
+        if feature_context_stds.isna().any() or (feature_context_stds <= 1e-6).any():
+            raise RuntimeError(
+                f"{target} features did not receive varying opponent context. "
+                "Refusing to train an artifact that would ignore matchup features."
+            )
+        log.info(
+            "target=%s opponent feature stds: defense=%.3f estimated_pace=%.3f",
+            target, feature_context_stds["opp_def_rating"], feature_context_stds["opp_pace"],
+        )
         if len(feats) < 50:
             log.warning("not enough training rows for %s (%s); skipping", target, len(feats))
             continue
