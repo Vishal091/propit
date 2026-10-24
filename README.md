@@ -37,19 +37,22 @@ The full estimate table is written to predictions/latest.csv. When no prop line 
 
 ## Import a public prop board and rank candidates
 
-A best-effort HTML importer reads the public Flash Odds pages for Points, Rebounds, and Assists. These are Underdog lines/prices, not an aggregate across books and not an official API. The source can change its markup or block requests.
+A best-effort HTML importer reads the public Flash Odds pages for Points, Rebounds, and Assists. It preserves the sportsbook label shown for the over and under prices independently; bare unlabeled prices are treated as Underdog by the parser. It is not an official API and does not guarantee that every market or every book is represented. The source can change its markup or block requests.
 
     .\.venv\Scripts\python.exe -m scripts.fetch_public_props
 
-This writes data/prop_lines_public.csv. The importer first tries the server-rendered public HTML. It falls back to headless Chrome only if a future page version requires JavaScript rendering. Google Chrome must be installed if that fallback is needed; Selenium Manager attempts to obtain a matching driver automatically. Positive prices may appear without a plus sign on the source page (for example, 165 means +165). Then score available markets and print up to ten candidates:
+This writes the current board to data/prop_lines_public.csv and appends timestamped observations to data/prop_market_history.csv. Each refresh records the captured line and prices, source opening line/movement when published, and movement since the prior import. The importer first tries the server-rendered public HTML and falls back to headless Chrome only if a future page version requires JavaScript rendering. Google Chrome must be installed if that fallback is needed; Selenium Manager attempts to obtain a matching driver automatically. Positive prices may appear without a plus sign on the source page (for example, 165 means +165). Then score available markets and print up to ten candidates:
 
     .\.venv\Scripts\python.exe -m src.predict_slate --lines data\prop_lines_public.csv --top 10
 
 Output files:
-- predictions/latest.csv — full scored market/audit table
+- predictions/latest.csv — full scored market/audit table, including same-line best prices, market line range, no-vig method, quote age, and line movement
 - predictions/shortlist.csv — candidates that pass the configured screens; these are not verified bets
+- data/prop_market_history.csv — append-only market observations from each successful public-board import
 
-If the importer errors or finds zero markets, inspect the logs. Do not interpret missing data as a pick. Underdog prices may be stale or unavailable in your region. Check actual player/market IDs, lines and both side prices before using any row.
+The slate comparison consolidates same player/stat/line rows and uses the best observed price on each side. When multiple book rows are present, the market table reports distinct books, consensus line range, and best Over/Under prices. A no-vig probability is only computed from a same-book pair (or a row explicitly representing one book); if the over quote and under quote are from different books, PropIt withholds that no-vig edge instead of treating a cross-book pair as fair probability. The default public importer is still only as broad as the Flash Odds page provides; it does not automatically subscribe to every sportsbook.
+
+Market quote age means when PropIt captured the page, not when the provider last changed its quote. Public snapshot rows older than 12 hours are blocked from the shortlist by default; change this intentionally with --max-market-age-hours. The page can still show these rows in All markets for inspection. Movement since the last import requires at least two successful refreshes. Do not interpret missing data as a pick, and verify current line, price, player ID and local availability independently.
 
 ## Run the local dashboard
 
@@ -140,7 +143,7 @@ The tests cover player-isolated rolling features, minutes/usage feature timing, 
 - Opponent defense and possession-volume context is reconstructed from player game logs using estimated possessions (FGA + 0.44 × FTA − OREB + TOV). It is an approximation, not an official NBA pace/defensive-rating feed; each historical feature is joined from games strictly before the target game's date.
 - Minutes/role context uses rolling minutes and recent-versus-season minute trends because the current feed does not provide a dependable starter/bench designation for every historical row. The usage proxy (FGA + 0.44 × FTA + TOV) is not the official NBA usage percentage.
 - The over/under probability currently uses each row's predicted 10th–90th percentile spread rather than one global residual standard deviation. It is still a distributional estimate, **not calibrated confidence**, and is capped to avoid extreme 0%/100% claims.
-- The probability calibration script requires historical pregame predictions and settled props. The current public importer only supplies a current snapshot, not historical lines/odds, so it cannot by itself establish historical betting ROI. A timestamped archived price provides traceability, but ROI is still a historical simulation rather than proof that an edge will persist.
+- The probability calibration script requires historical pregame predictions and settled props. The public market history file tracks observations only from the moment it is enabled; it cannot reconstruct earlier prices. A timestamped archived price provides traceability, but ROI is still a historical simulation rather than proof that an edge will persist.
 - A low mean absolute error or high predicted probability is not proof of profitable betting.
 - Current roster status is not an official injury or game-availability feed.
 - Integer prop lines are skipped by the importer because the current EV model does not account for push probability.
