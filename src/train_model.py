@@ -6,7 +6,7 @@ import pandas as pd
 
 from src.data.nba_client import get_league_game_log
 from src.data.seasons import completed_seasons
-from src.features.build import build_player_features
+from src.features.build import build_player_features, build_team_game_metrics
 from src.model.train import train
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
@@ -44,9 +44,14 @@ def main() -> None:
     log.info("training seasons: %s", ", ".join(SEASONS))
     games = assemble_training_frame()
     log.info("assembled %s rows across %s distinct players", len(games), games["PLAYER_ID"].nunique())
+    team_metrics = build_team_game_metrics(games)
+    log.info(
+        "built time-aware opponent metrics from %s team-game rows across %s teams",
+        len(team_metrics), team_metrics["TEAM_ID"].nunique() if not team_metrics.empty else 0,
+    )
     trained_targets = 0
     for target in ("PTS", "REB", "AST"):
-        feats = build_player_features(games, target=target)
+        feats = build_player_features(games, target=target, opponent_team_metrics=team_metrics)
         if len(feats) < 50:
             log.warning("not enough training rows for %s (%s); skipping", target, len(feats))
             continue
