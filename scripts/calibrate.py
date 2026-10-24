@@ -50,6 +50,7 @@ def prepare_rows(path: Path) -> pd.DataFrame:
         actual = pd.to_numeric(df["actual_stat"], errors="coerce")
         line = pd.to_numeric(df["line"], errors="coerce")
         df["actual_over"] = np.where(actual == line, np.nan, (actual > line).astype(float))
+        df.loc[actual.isna() | line.isna(), "actual_over"] = np.nan
     df["actual_over"] = pd.to_numeric(df["actual_over"], errors="coerce")
     df = df.dropna(subset=["game_date", "target", "p_over", "actual_over"])
     df = df[df["actual_over"].isin([0, 1]) & df["p_over"].between(0, 1)].copy()
