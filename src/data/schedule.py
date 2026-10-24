@@ -195,8 +195,13 @@ def get_next_game_map(
                 response = requests.get(url, headers=HEADERS, timeout=25)
                 response.raise_for_status()
                 fresh = response.json()
-                if not isinstance(fresh, dict) or not isinstance(fresh.get("leagueSchedule"), dict):
-                    raise ValueError("NBA CDN response did not contain leagueSchedule.gameDates")
+                if (
+                    not isinstance(fresh, dict)
+                    or not isinstance(fresh.get("leagueSchedule"), dict)
+                    or not isinstance(fresh["leagueSchedule"].get("gameDates"), list)
+                    or not fresh["leagueSchedule"].get("gameDates")
+                ):
+                    raise ValueError("NBA CDN response did not contain non-empty leagueSchedule.gameDates")
                 if not _matches_current_season(fresh):
                     raise ValueError(
                         f"{url} returned schedule season {fresh.get('leagueSchedule', {}).get('seasonYear')!r}, "
