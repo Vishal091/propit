@@ -77,15 +77,23 @@ the quality of results depends on the league/season coverage imported.
 - Display the saved independent-Poisson and Dixon-Coles evaluation metrics and data coverage caveats.
 - Add API routes under `/api/soccer/*` and tests for empty/available states, filtering, invalid dates, catalog parsing and controlled CLI invocations.
 
+## Phase 5: top-five picks and calibration diagnostics (implemented)
+
+- Strictly filter Best Picks to Premier League, La Liga, Bundesliga, Serie A and Ligue 1. European cups, lower divisions and unrecognized competitions are ineligible.
+- Rank one strongest independent-Poisson market per fixture across home win, draw, away win and the configured total-goals over/under line. Defaults require at least eight prior competition matches and 52% model probability; the ranking score discounts thinner history. Dixon-Coles remains experimental and its rho is unfitted.
+- Display expected goals, model probability, historical sample support and ranking score. Odds, confirmed lineups, suspensions and injuries are absent; the model cannot report EV, market edge or profitable bets without reliable time-aligned odds.
+- Add top-five calibration diagnostics using chronological rolling-origin backtest predictions, with top-class reliability buckets and expected calibration error (ECE) by model. Require at least 30 evaluated matches per model before passing the sample gate; no calibration transform is fitted.
+- Add /api/soccer/picks and /api/soccer/calibration plus tests for league eligibility, ranking, date validation, odds caveats and top-five-only calibration.
+- Keep soccer in separate modules and preserve NBA defaults and workflows.
+
 ## Next phase
 
-### Phase 5: calibration and richer dashboard insights
+### Phase 6: better evidence before betting claims
 
-1. Add a Soccer tab without changing NBA defaults, filters, or API behavior.
-2. Display fixtures, competition, model expected goals, 1X2/totals probabilities, sample size, freshness
-   and source availability. Make missing xG/odds/lineups explicit rather than substituting guesses.
-3. Add model confidence/calibration summaries only after enough chronological predictions are archived.
-4. Continue evaluating player markets only when reliable player-level event data and confirmed lineups exist.
+1. Add dependable, licensed, time-stamped market odds and compare model probability with matched bookmaker prices; only then consider no-vig probabilities, edge and expected value.
+2. Improve the model using more seasons and rolling validation by league/season, compared with league-rate and market-implied baselines where licensed odds exist.
+3. Add lineup/injury features only with trustworthy providers, timestamps and historical pre-match snapshots. Avoid leakage from post-kickoff data.
+4. Consider team-strength ratings and fitted Dixon-Coles parameters only after repeatable out-of-sample validation demonstrates improvement.
 
 ## Safety and interpretation
 
