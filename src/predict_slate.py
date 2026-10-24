@@ -156,15 +156,19 @@ def _next_match_for_player(
     team_meta = player_teams.get(player_id, {})
     team_abbreviation = team_meta.get("team_abbreviation", "")
     team_name = team_meta.get("team", "")
-    line_team = line_row.get("team")
-    if line_team is not None and not pd.isna(line_team) and str(line_team).strip():
-        team_name = str(line_team).strip()
+    def row_text(key: str) -> str:
+        value = line_row.get(key)
+        if value is None or pd.isna(value):
+            return ""
+        return str(value).strip()
+
+    line_team = row_text("team")
+    if line_team:
+        team_name = line_team
     scheduled = next_games.get(team_abbreviation, {}) if team_abbreviation else {}
-    match_date = str(line_row.get("match_date") or "").strip()
-    opponent = str(line_row.get("opponent_team") or scheduled.get("opponent_team") or "").strip()
-    matchup = str(line_row.get("matchup") or scheduled.get("matchup") or "").strip()
-    if not match_date:
-        match_date = scheduled.get("match_date", "")
+    match_date = row_text("match_date") or scheduled.get("match_date", "")
+    opponent = row_text("opponent_team") or scheduled.get("opponent_team", "")
+    matchup = row_text("matchup") or scheduled.get("matchup", "")
     return {
         "team": team_name,
         "team_abbreviation": team_abbreviation,
