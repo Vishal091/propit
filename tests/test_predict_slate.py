@@ -5,7 +5,7 @@ import pandas as pd
 import pytest
 
 from src.features.build import build_team_game_metrics
-from src.predict_slate import _build_latest_features
+from src.predict_slate import _build_latest_features, _validate_model_feature_context
 
 
 def _row(game_id, day, player_id, player_name, team_id, opponent_id, points, matchup):
@@ -92,3 +92,33 @@ def test_next_game_features_skip_players_without_a_future_schedule_match():
         team_id_by_abbreviation={"AAA": 1, "BBB": 2},
     )
     assert not any(key[0] == 1 for key in lookup)
+
+
+
+def test_old_model_artifact_is_rejected_before_prediction():
+    class LegacyBundle:
+        pass
+
+    with pytest.raises(RuntimeError, match="predates the next-game/opponent-context update"):
+        _validate_model_feature_context(LegacyBundle(), "PTS")
+
+
+def test_model_artifact_requires_varying_opponent_features():
+    class FixedContextBundle:
+        feature_stds = {
+            "opp_def_rating": 0.0,
+            "opp_pace": 2.1,
+        }
+
+    with pytest.raises(RuntimeError, match="without varying opponent context"):
+        _validate_model_feature_context(FixedContextBundle(), "REB")
+
+
+def test_retrained_model_with_varying_opponent_features_is_accepted():
+    class CurrentBundle:
+        feature_stds = {
+            "opp_def_rating": 4.5,
+            "opp_pace": 3.2,
+        }
+
+    _validate_model_feature_context(CurrentBundle(), "AST")
