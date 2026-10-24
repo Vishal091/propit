@@ -17,7 +17,7 @@ import pandas as pd
 from src.data.nba_client import get_active_players, get_league_game_log
 from src.data.seasons import current_season, recent_seasons
 from src.data.schedule import get_next_game_map
-from src.features.build import build_player_features, build_team_game_metrics
+from src.features.build import build_player_features, build_team_game_metrics, feature_columns
 from src.model.predict import Prediction, predict_one
 from src.model.train import TrainedModel
 
@@ -50,7 +50,19 @@ def expected_profit_per_unit(probability: float | None, odds: float | int | None
 
 
 def _validate_model_feature_context(bundle: TrainedModel, target: str) -> None:
-    """Reject old artifacts that learned opponent context as constants."""
+    """Reject stale artifacts whose feature schema predates the current model."""
+    saved_names = getattr(bundle, "feature_names", None)
+    expected_names = tuple(feature_columns(target))
+    if not saved_names:
+        raise RuntimeError(
+            f"The {target} model artifact has no saved feature schema and is outdated. "
+            "Run .\\.venv\\Scripts\\python.exe -m src.train_model before refreshing the slate."
+        )
+    if tuple(saved_names) != expected_names:
+        raise RuntimeError(
+            f"The {target} model was trained with an older feature schema. "
+            "Retrain all models with .\\.venv\\Scripts\\python.exe -m src.train_model."
+        )
     feature_stds = getattr(bundle, "feature_stds", None)
     if not isinstance(feature_stds, dict):
         raise RuntimeError(
