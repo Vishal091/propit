@@ -11,6 +11,7 @@ def set_soccer_paths(monkeypatch, tmp_path):
     monkeypatch.setattr(dashboard, "SOCCER_UPCOMING", tmp_path / "predictions" / "soccer" / "upcoming.csv")
     monkeypatch.setattr(dashboard, "SOCCER_MATCHES", tmp_path / "data" / "soccer" / "matches.csv")
     monkeypatch.setattr(dashboard, "SOCCER_BACKTEST", tmp_path / "predictions" / "soccer" / "backtest.csv")
+    monkeypatch.setattr(dashboard, "SOCCER_ODDS", tmp_path / "data" / "soccer" / "odds_snapshots.csv")
 
 
 def write(path, rows):
@@ -64,7 +65,7 @@ def test_picks_api_filters_to_top_five_and_returns_ranked_markets(tmp_path, monk
     assert {row["league"] for row in response["rows"]} == {"Premier League", "La Liga"}
     assert response["rows"][0]["market"] == "Under 2.5"
     assert response["rows"][0]["odds_available"] is False
-    assert "not an odds-based" in response["warning"]
+    assert "not a market edge" in response["warning"] or "not an odds-based" in response["warning"]
 
 
 @pytest.mark.parametrize(
