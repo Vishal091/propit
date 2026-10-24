@@ -19,7 +19,15 @@ HISTORY_COLUMNS = [
 
 
 def _normalize_name(value: Any) -> str:
-    raw = unicodedata.normalize("NFKD", str(value or ""))
+    if value is None:
+        value = ""
+    else:
+        try:
+            if pd.isna(value):
+                value = ""
+        except (TypeError, ValueError):
+            pass
+    raw = unicodedata.normalize("NFKD", str(value))
     raw = "".join(char for char in raw if not unicodedata.combining(char))
     return "".join(char.casefold() for char in raw if char.isalnum())
 
@@ -53,9 +61,19 @@ def no_vig_probabilities(
     bookmaker: Any = None,
 ) -> tuple[float | None, float | None, str]:
     """Normalize a paired two-sided price only when its book provenance is compatible."""
-    over_book = str(bookmaker_over or "").strip()
-    under_book = str(bookmaker_under or "").strip()
-    row_book = str(bookmaker or "").strip()
+    def clean_book(value: Any) -> str:
+        if value is None:
+            return ""
+        try:
+            if pd.isna(value):
+                return ""
+        except (TypeError, ValueError):
+            pass
+        return str(value).strip()
+
+    over_book = clean_book(bookmaker_over)
+    under_book = clean_book(bookmaker_under)
+    row_book = clean_book(bookmaker)
     if not over_book and not under_book and row_book:
         over_book = under_book = row_book
     elif over_book and not under_book:
