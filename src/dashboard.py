@@ -274,4 +274,4 @@ def api_calibrate() -> dict[str, Any]:
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(app, host="127.0.0.1", port=8765, reload=False)
+    uvicorn.run(app, host="127.0.0.1", port=8766, reload=False)
