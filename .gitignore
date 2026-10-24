@@ -11,3 +11,7 @@ data/prop_lines_public.csv
 .env
 *.log
 data/prediction_history.csv
+# Local operations data and generated workspace backups/reports
+data/operations_audit.jsonl
+reports/
+backups/
