@@ -19,8 +19,16 @@ COLUMNS = [
     "player_id", "player_name", "team", "team_abbreviation",
     "match_date", "opponent_team", "opponent_abbreviation", "matchup",
     "target", "line", "p_over", "actual_over", "actual_stat",
-    "odds_over_american", "odds_under_american", "bookmaker", "line_source",
-    "settlement_status",
+    "odds_over_american", "odds_under_american", "bookmaker", "bookmaker_over", "bookmaker_under",
+    "line_source", "market_source", "market_snapshot_at_utc", "prior_snapshot_at_utc",
+    "previous_line", "previous_odds_over", "previous_odds_under", "line_move_from_previous",
+    "over_decimal_odds_move", "under_decimal_odds_move", "market_prior_snapshot_count",
+    "market_no_vig_method", "market_no_vig_p_over", "market_no_vig_p_under",
+    "market_no_vig_p_over_consensus", "market_no_vig_p_under_consensus",
+    "market_books_available", "market_lines_available", "market_consensus_line", "market_line_min",
+    "market_line_max", "market_line_spread", "market_rows_at_line", "same_book_no_vig_rows",
+    "best_over_odds_american", "best_over_bookmaker", "best_under_odds_american", "best_under_bookmaker",
+    "market_snapshot_age_hours", "settlement_status",
 ]
 
 
@@ -43,7 +51,13 @@ def prepare_archive_rows(predictions: pd.DataFrame, game_date: str, snapshot_at_
     out["snapshot_at_utc"] = snapshot_at_utc
     out["player_id"] = pd.to_numeric(predictions["player_id"], errors="coerce").astype("Int64")
     out["player_name"] = predictions["player_name"].astype(str).str.strip()
-    for column in ("team", "team_abbreviation", "opponent_team", "opponent_abbreviation", "matchup"):
+    string_columns = (
+        "team", "team_abbreviation", "opponent_team", "opponent_abbreviation", "matchup",
+        "bookmaker", "bookmaker_over", "bookmaker_under", "line_source", "market_source",
+        "market_snapshot_at_utc", "prior_snapshot_at_utc", "market_no_vig_method",
+        "best_over_bookmaker", "best_under_bookmaker",
+    )
+    for column in string_columns:
         out[column] = predictions[column].fillna("").astype(str).str.strip() if column in predictions else ""
     if "match_date" in predictions:
         match_dates = pd.to_datetime(predictions["match_date"], errors="coerce")
@@ -62,8 +76,17 @@ def prepare_archive_rows(predictions: pd.DataFrame, game_date: str, snapshot_at_
     out["actual_stat"] = pd.to_numeric(predictions.get("actual_stat", pd.Series(index=predictions.index, dtype=float)), errors="coerce")
     for column in ("odds_over_american", "odds_under_american"):
         out[column] = pd.to_numeric(predictions.get(column, pd.Series(index=predictions.index, dtype=float)), errors="coerce")
-    for column in ("bookmaker", "line_source"):
-        out[column] = predictions[column].fillna("").astype(str) if column in predictions else ""
+    numeric_market_columns = (
+        "previous_line", "previous_odds_over", "previous_odds_under", "line_move_from_previous",
+        "over_decimal_odds_move", "under_decimal_odds_move", "market_prior_snapshot_count",
+        "market_no_vig_p_over", "market_no_vig_p_under", "market_no_vig_p_over_consensus",
+        "market_no_vig_p_under_consensus", "market_books_available", "market_lines_available",
+        "market_consensus_line", "market_line_min", "market_line_max", "market_line_spread",
+        "market_rows_at_line", "same_book_no_vig_rows", "best_over_odds_american",
+        "best_under_odds_american", "market_snapshot_age_hours",
+    )
+    for column in numeric_market_columns:
+        out[column] = pd.to_numeric(predictions[column], errors="coerce") if column in predictions else float("nan")
     out["settlement_status"] = "PENDING"
     out = out.dropna(subset=["player_id", "player_name", "target", "line", "p_over"])
     out = out[out["target"].isin(["PTS", "REB", "AST"]) & out["p_over"].between(0, 1)].copy()
