@@ -71,7 +71,7 @@ def prepare_archive_rows(predictions: pd.DataFrame, game_date: str, snapshot_at_
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--game-date", required=True, help="NBA-local game/slate date (YYYY-MM-DD)")
+    parser.add_argument("--game-date", required=True, help="snapshot date label (YYYY-MM-DD), used to prevent duplicate snapshots")
     parser.add_argument("--input", type=Path, default=DEFAULT_INPUT)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument(
