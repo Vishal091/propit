@@ -4,7 +4,11 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from src.features.build import build_player_features, feature_columns
+from src.features.build import (
+    build_player_features,
+    build_team_game_metrics,
+    feature_columns,
+)
 
 
 def make_fake_games(n: int = 30, player_id: int | None = None, points_start: int = 20) -> pd.DataFrame:
@@ -18,6 +22,20 @@ def make_fake_games(n: int = 30, player_id: int | None = None, points_start: int
         frame["PLAYER_ID"] = player_id
         frame["PLAYER_NAME"] = f"Player {player_id}"
     return frame
+
+
+def _team_game(game_id, day, team_id, opponent_id, pts, fga=80, fta=20, oreb=10, tov=10):
+    return {
+        "GAME_ID": str(game_id),
+        "GAME_DATE": pd.Timestamp(day),
+        "TEAM_ID": team_id,
+        "OPPONENT_TEAM_ID": opponent_id,
+        "PTS": pts,
+        "FGA": fga,
+        "FTA": fta,
+        "OREB": oreb,
+        "TOV": tov,
+    }
 
 
 def test_features_have_expected_columns() -> None:
@@ -47,3 +65,39 @@ def test_league_table_keeps_each_players_history_separate() -> None:
 def test_target_validation() -> None:
     with pytest.raises(ValueError):
         build_player_features(make_fake_games(), target="STL")
+
+
+def test_team_context_is_rolled_from_real_games_not_fixed_defaults():
+    rows = [
+        _team_game("g1", "2024-01-01", 1, 2, 100, 80, 20, 10, 10),
+        _team_game("g1", "2024-01-01", 2, 1, 90, 70, 20, 8, 12),
+        _team_game("g2", "2024-01-03", 1, 2, 110, 85, 18, 9, 11),
+        _team_game("g2", "2024-01-03", 2, 1, 95, 75, 22, 7, 10),
+    ]
+    metrics = build_team_game_metrics(pd.DataFrame(rows))
+    assert len(metrics) == 4
+    first_team_2 = metrics.loc[(metrics["TEAM_ID"] == 2) & (metrics["GAME_DATE"] == pd.Timestamp("2024-01-01"))].iloc[0]
+    second_team_2 = metrics.loc[(metrics["TEAM_ID"] == 2) & (metrics["GAME_DATE"] == pd.Timestamp("2024-01-03"))].iloc[0]
+    assert first_team_2["DEF_RATING"] != pytest.approx(112.0)
+    assert second_team_2["PACE"] != pytest.approx(99.0)
+
+
+def test_historical_opponent_metrics_are_from_prior_games_only():
+    games = pd.DataFrame([
+        {**_team_game("g1", "2024-01-01", 1, 2, 100), "PLAYER_ID": 11, "PLAYER_NAME": "A", "MATCHUP": "AAA vs. BBB", "REB": 5, "AST": 3},
+        {**_team_game("g1", "2024-01-01", 2, 1, 90), "PLAYER_ID": 22, "PLAYER_NAME": "B", "MATCHUP": "BBB @ AAA", "REB": 6, "AST": 4},
+        {**_team_game("g2", "2024-01-03", 1, 2, 110), "PLAYER_ID": 11, "PLAYER_NAME": "A", "MATCHUP": "AAA vs. BBB", "REB": 6, "AST": 4},
+        {**_team_game("g2", "2024-01-03", 2, 1, 95), "PLAYER_ID": 22, "PLAYER_NAME": "B", "MATCHUP": "BBB @ AAA", "REB": 5, "AST": 3},
+    ])
+    metrics = build_team_game_metrics(games)
+    features = build_player_features(
+        games.loc[games["PLAYER_ID"].eq(11)].copy(),
+        target="PTS",
+        opponent_team_metrics=metrics,
+    )
+    game_two = features.loc[features["GAME_DATE"] == pd.Timestamp("2024-01-03")].iloc[0]
+    team_two_prior = metrics.loc[
+        (metrics["TEAM_ID"] == 2) & (metrics["GAME_DATE"] == pd.Timestamp("2024-01-01"))
+    ].iloc[0]
+    assert game_two["opp_def_rating"] == pytest.approx(team_two_prior["DEF_RATING"])
+    assert game_two["opp_pace"] == pytest.approx(team_two_prior["PACE"])
