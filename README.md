@@ -83,7 +83,7 @@ The current implementation **does not include bookmaker odds, confirmed lineups,
 
 To run the chronological backtest, import historical results and use the Soccer tab's **Run backtest** action or:
 
-    .\\.venv\\Scripts\\python.exe -m scripts.backtest_soccer --input data\\soccer\\matches.csv --min-history 30
+    .\.venv\Scripts\python.exe -m scripts.backtest_soccer --input data\soccer\matches.csv --min-history 30
 
 ## Run the local dashboard
 
