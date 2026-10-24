@@ -157,6 +157,13 @@ input[type=date],input[type=text],input[type=number],select{border:1px solid var
       </div>
       <div class="panel table-panel">
         <div class="panel-head">
+          <div><h2 class="panel-title">By league and season</h2><p class="panel-subtitle">Chronological backtest scorecards. Compare lower log loss/Brier within the same sample; sample sizes differ when market odds are missing.</p></div>
+          <span class="help-text">Rolling-origin · point-in-time</span>
+        </div>
+        <div class="table-wrap"><table><thead><tr><th>League</th><th>Season</th><th>Model</th><th>N</th><th>1X2 log loss ↓</th><th>1X2 Brier ↓</th><th>Accuracy</th><th>Goal MAE ↓</th><th>Totals log loss ↓</th></tr></thead><tbody id="soccer-segment-metrics-table"><tr><td colspan="9" class="empty">Run a chronological backtest to populate per-league and per-season metrics.</td></tr></tbody></table></div>
+      </div>
+      <div class="panel table-panel">
+        <div class="panel-head">
           <div><h2 class="panel-title">Time-stamped bookmaker odds</h2><p class="panel-subtitle">No automatic requests on page load. Imports are explicit and written to a local snapshot ledger.</p></div>
           <span id="soccer-odds-badge" class="status-pill warn">NOT CHECKED</span>
         </div>
@@ -704,6 +711,21 @@ input[type=date],input[type=text],input[type=number],select{border:1px solid var
     $("soccer-metrics-note").textContent=report
       ? "Evaluated "+Number(report.backtested_matches||0).toLocaleString()+" matches · "+Number(report.source_scored_matches||0).toLocaleString()+" scored source rows · "+Number(report.skipped_warmup_matches||0).toLocaleString()+" warm-up matches skipped. "+String(report.warning||"")
       : "Lower log loss and Brier scores are better. A test-suite pass is not evidence of predictive accuracy; inspect the real backtest sample and compare both models.";
+    var segments=[];
+    (report&&Array.isArray(report.competitions)?report.competitions:[]).forEach(function(comp){
+      (comp.metrics||[]).forEach(function(m){
+        segments.push({league:comp.competition_name||comp.competition_id||"Unknown",season:"All seasons",model:m});
+      });
+    });
+    (report&&Array.isArray(report.seasons)?report.seasons:[]).forEach(function(season){
+      (season.metrics||[]).forEach(function(m){
+        segments.push({league:season.competition_id||"Unknown",season:season.season_name||season.season_id||"Unknown",model:m});
+      });
+    });
+    $("soccer-segment-metrics-table").innerHTML=segments.length?segments.map(function(item){
+      var m=item.model;
+      return '<tr><td>'+escapeHtml(item.league)+'</td><td>'+escapeHtml(item.season)+'</td><td class="player-cell">'+escapeHtml(m.model||"—")+'</td><td class="mono">'+escapeHtml(m.matches||0)+'</td><td class="mono">'+fixed(m.log_loss_1x2,4)+'</td><td class="mono">'+fixed(m.brier_1x2,4)+'</td><td class="mono">'+pct(m.accuracy_1x2)+'</td><td class="mono">'+fixed(m.expected_goals_mae,3)+'</td><td class="mono">'+fixed(m.total_log_loss,4)+'</td></tr>';
+    }).join(""):emptyRow(9,"No segmented metrics yet","Import multiple historical seasons and run the chronological backtest.");
   }
   async function loadSoccerOddsStatus(){
     try{
