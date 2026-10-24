@@ -8,7 +8,8 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
-from datetime import date, datetime
+import time
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +17,8 @@ import pandas as pd
 from fastapi import FastAPI, Query
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
+
+from src.operations import append_audit_event, build_health_report, read_audit_events
 
 ROOT = Path(__file__).resolve().parents[1]
 DATA = ROOT / "data"
@@ -102,6 +105,8 @@ def _run_step(module: str, args: list[str] | None = None, timeout_seconds: int =
     command = [sys.executable, "-m", module, *(args or [])]
     env = os.environ.copy()
     env["PYTHONUNBUFFERED"] = "1"
+    started = time.perf_counter()
+    started_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     try:
         result = subprocess.run(
             command, cwd=ROOT, env=env, capture_output=True, text=True,
@@ -109,34 +114,66 @@ def _run_step(module: str, args: list[str] | None = None, timeout_seconds: int =
         )
         output = "\n".join(part for part in (result.stdout.strip(), result.stderr.strip()) if part)
         return {
-            "step": module, "ok": result.returncode == 0,
+            "step": module, "args": args or [], "ok": result.returncode == 0,
             "returncode": result.returncode, "output": output or "(no output)",
+            "started_at_utc": started_at, "duration_seconds": round(time.perf_counter() - started, 3),
         }
     except subprocess.TimeoutExpired as exc:
         stdout = exc.stdout.decode(errors="replace") if isinstance(exc.stdout, bytes) else (exc.stdout or "")
         stderr = exc.stderr.decode(errors="replace") if isinstance(exc.stderr, bytes) else (exc.stderr or "")
         output = "\n".join(part for part in (stdout.strip(), stderr.strip()) if part)
         return {
-            "step": module, "ok": False, "returncode": None,
+            "step": module, "args": args or [], "ok": False, "returncode": None,
             "output": (output + "\n" if output else "") + f"Timed out after {timeout_seconds} seconds.",
+            "started_at_utc": started_at, "duration_seconds": round(time.perf_counter() - started, 3),
         }
     except OSError as exc:
-        return {"step": module, "ok": False, "returncode": None, "output": str(exc)}
+        return {
+            "step": module, "args": args or [], "ok": False, "returncode": None, "output": str(exc),
+            "started_at_utc": started_at, "duration_seconds": round(time.perf_counter() - started, 3),
+        }
 
 
 def _run_steps(plan: list[tuple[str, list[str]]]) -> dict[str, Any]:
     steps: list[dict[str, Any]] = []
+    started_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     for module, args in plan:
         step = _run_step(module, args)
         steps.append(step)
         if not step["ok"]:
             break
-    return {
-        "ok": bool(steps) and all(step["ok"] for step in steps) and len(steps) == len(plan),
+    ok = bool(steps) and all(step["ok"] for step in steps) and len(steps) == len(plan)
+    result = {
+        "ok": ok,
         "steps": steps,
-        "message": "All requested steps completed." if steps and all(step["ok"] for step in steps) and len(steps) == len(plan)
+        "message": "All requested steps completed." if ok
                    else "Workflow stopped at the first failed step. Review the logs below.",
     }
+    event = {
+        "event_type": "workflow",
+        "timestamp_utc": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "started_at_utc": started_at,
+        "ok": ok,
+        "message": result["message"],
+        "steps": [
+            {
+                "step": step["step"],
+                "ok": bool(step["ok"]),
+                "returncode": step.get("returncode"),
+                "duration_seconds": step.get("duration_seconds"),
+                "args": step.get("args", []),
+                "error_excerpt": str(step.get("output", ""))[-1000:] if not step["ok"] else "",
+            }
+            for step in steps
+        ],
+    }
+    try:
+        append_audit_event(event, ROOT / "data" / "operations_audit.jsonl")
+        result["audit_recorded"] = True
+    except OSError as exc:
+        result["audit_recorded"] = False
+        result["audit_error"] = str(exc)
+    return result
 
 
 def _state() -> dict[str, Any]:
@@ -173,6 +210,19 @@ def dashboard() -> FileResponse:
 @app.get("/api/state")
 def api_state() -> dict[str, Any]:
     return _state()
+
+
+@app.get("/api/health")
+def api_health() -> dict[str, Any]:
+    """Report local data freshness, model artifacts, history and recent failures."""
+    return build_health_report(ROOT)
+
+
+@app.get("/api/audit")
+def api_audit(limit: int = Query(default=40, ge=1, le=200)) -> dict[str, Any]:
+    """Read the most recent local workflow audit events."""
+    rows = read_audit_events(ROOT / "data" / "operations_audit.jsonl", limit=limit)
+    return {"count": len(rows), "rows": rows}
 
 
 @app.get("/api/slate")
@@ -326,6 +376,18 @@ def api_calibrate() -> dict[str, Any]:
     if not HISTORY.exists() or _read_csv(HISTORY).empty:
         return {"ok": False, "steps": [], "message": "No prediction history exists. Archive pregame slates and settle them first."}
     return _run_steps([("scripts.calibrate", ["data/prediction_history.csv"])])
+
+
+@app.post("/api/ops-report")
+def api_ops_report() -> dict[str, Any]:
+    """Write a dated JSON and Markdown daily operations report."""
+    return _run_steps([("scripts.ops_report", [])])
+
+
+@app.post("/api/backup")
+def api_backup() -> dict[str, Any]:
+    """Create a ZIP backup of tracked source and essential local data."""
+    return _run_steps([("scripts.backup_workspace", [])])
 
 
 if __name__ == "__main__":
