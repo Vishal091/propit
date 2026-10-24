@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from src.data.schedule import build_next_game_map
+from src.data.schedule import _as_date, build_next_game_map
 
 
 def _game(day, status, home, away):
@@ -17,6 +17,10 @@ def _game(day, status, home, away):
 
 def _team(abbreviation, city, name):
     return {"teamTricode": abbreviation, "teamCity": city, "teamName": name}
+
+
+def test_as_date_parses_us_date_with_meridiem():
+    assert _as_date("10/24/2026 7:30:00 PM") == date(2026, 10, 24)
 
 
 def test_next_game_map_uses_next_non_final_game_and_opponent():
