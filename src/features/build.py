@@ -100,9 +100,11 @@ def build_player_features(
         None,
     )
     if group_col is not None:
+        if opponent_team_metrics is not None and len(opponent_team_metrics):
+            df = _attach_opponent_metrics(df, opponent_team_metrics)
         built: list[pd.DataFrame] = []
         for _, player_games in df.groupby(group_col, sort=False, dropna=False):
-            frame = _build_single_player_features(player_games, target, opponent_team_metrics)
+            frame = _build_single_player_features(player_games, target, None)
             if not frame.empty:
                 built.append(frame)
         if not built:
@@ -174,7 +176,7 @@ def _attach_opponent_metrics(
         else:
             result["opp_def_rating"] = np.nan
             result["opp_pace"] = np.nan
-    else:
+    elif not {"opp_def_rating", "opp_pace"}.issubset(result.columns):
         result["opp_def_rating"] = np.nan
         result["opp_pace"] = np.nan
 
@@ -206,7 +208,11 @@ def _build_single_player_features(
         df[f"last{window}_{target}_mean"] = df[target].shift(1).rolling(window=window, min_periods=1).mean()
     df[f"ema_{target}"] = df[target].shift(1).ewm(alpha=0.3, adjust=False).mean()
     df[f"season_{target}_mean"] = df[target].shift(1).expanding(min_periods=1).mean()
-    df = _attach_opponent_metrics(df, opponent_team_metrics)
+    if opponent_team_metrics is not None or not {"opp_def_rating", "opp_pace"}.issubset(df.columns):
+        df = _attach_opponent_metrics(df, opponent_team_metrics)
+    else:
+        df["opp_def_rating"] = pd.to_numeric(df["opp_def_rating"], errors="coerce").fillna(112.0)
+        df["opp_pace"] = pd.to_numeric(df["opp_pace"], errors="coerce").fillna(99.0)
     df = df.dropna(subset=[f"last{ROLLING_WINDOWS[0]}_{target}_mean", f"ema_{target}"])
     return df.reset_index(drop=True)
 
