@@ -149,6 +149,26 @@ Use one row per player/stat/market with these columns:
 
 Targets are PTS, REB, or AST. Enter actual lines and American odds from a market you have personally checked. Test/demo/example labels are intentionally excluded from shortlist candidates. The shortlist ranks the supplied markets; it does not invent line data or place bets.
 
+## Operations health, audit trail, daily report and backup
+
+The **Operations** dashboard tab checks whether the three model artifacts exist, whether public market captures and prediction files are fresh, whether the availability snapshot is current, whether pregame history is settling, and whether recent workflow attempts failed. The status describes local files and timestamps; it cannot guarantee that a remote data source is complete or that predictions are correct.
+
+Every dashboard workflow action (market refresh, pregame workflow, settlement, calibration, daily report and backup) appends a small JSONL record to `data/operations_audit.jsonl`. The audit records start/end timestamps, command module, arguments, return code, duration, success/failure and a short failure excerpt. It does not copy environment variables or credentials. The audit file and generated report/backups are ignored by Git.
+
+Generate a dated JSON and Markdown report from PowerShell:
+
+    .\.venv\Scripts\python.exe -m scripts.ops_report
+
+Reports are written to `reports/operations/operations-YYYY-MM-DD.json` and `.md`. Re-running the report on the same UTC date updates that date's report.
+
+Create a ZIP backup:
+
+    .\.venv\Scripts\python.exe -m scripts.backup_workspace
+
+Backups are stored in `backups/propit-backup-YYYYMMDDTHHMMSSZ.zip`. Each archive includes a `manifest.json` with included paths, byte sizes and SHA-256 checksums. The allow-list covers source code, tests, workflow configuration, README/dependencies, local CSV/JSON/JSONL data, prediction files, and local model artifacts when present. It deliberately excludes `.env`, Python virtual environments, downloaded caches and earlier backup archives. Keep the ZIP somewhere outside this PC for disaster recovery; the tool does not upload it.
+
+Run backup before changing model/data schemas and preserve a known-good archive so you can restore files manually if a later code change causes a regression. Restoring code should be followed by the test suite; restore trained model files and data as a matched set. These utilities do not automatically deploy rollback code or execute wagers.
+
 ## Run tests
 
     .\.venv\Scripts\python.exe -m pytest -q
