@@ -17,27 +17,27 @@ from src.soccer.schemas import SoccerMatch, utc_now_iso
 
 OPENFOOTBALL_REPOS = {
     "england": {
-        "repo": "england", "filename": "1-premierleague.txt",
+        "repo": "england", "path_template": "{season}/1-premierleague.txt",
         "competition_id": "openfootball:england:premierleague",
         "competition_name": "English Premier League", "country": "England",
     },
     "germany": {
-        "repo": "germany", "filename": "1-bundesliga.txt",
+        "repo": "deutschland", "path_template": "{season}/1-bundesliga.txt",
         "competition_id": "openfootball:germany:bundesliga",
         "competition_name": "German Bundesliga", "country": "Germany",
     },
     "spain": {
-        "repo": "spain", "filename": "1-laliga.txt",
+        "repo": "espana", "path_template": "{season}/1-liga.txt",
         "competition_id": "openfootball:spain:laliga",
         "competition_name": "Spanish La Liga", "country": "Spain",
     },
     "italy": {
-        "repo": "italy", "filename": "1-seriea.txt",
+        "repo": "italy", "path_template": "{season}/1-seriea.txt",
         "competition_id": "openfootball:italy:seriea",
         "competition_name": "Italian Serie A", "country": "Italy",
     },
     "france": {
-        "repo": "france", "filename": "1-ligue1.txt",
+        "repo": "europe", "path_template": "france/{season}_fr1.txt",
         "competition_id": "openfootball:france:ligue1",
         "competition_name": "French Ligue 1", "country": "France",
     },
@@ -72,7 +72,6 @@ def _parse_match_line(line: str) -> tuple[str, str, str | None, int | None, int 
             away = score.group("away").strip()
             home_score, away_score = int(score.group("hg")), int(score.group("ag"))
         else:
-            # Some older datasets put the score after the away side in a v-formatted row.
             home, away, home_score, away_score = home.strip(), away_part.strip(), None, None
     else:
         score = _SCORE_RE.search(body)
@@ -206,10 +205,8 @@ class OpenFootballProvider:
         if not re.match(r"^\d{4}-\d{2,4}$", season.strip()):
             raise ValueError("season must look like 2026-27")
         config = OPENFOOTBALL_REPOS[league_key]
-        url = (
-            f"https://raw.githubusercontent.com/openfootball/{config['repo']}/master/"
-            f"{season.strip()}/{config['filename']}"
-        )
+        relative_path = config["path_template"].format(season=season.strip())
+        url = f"https://raw.githubusercontent.com/openfootball/{config['repo']}/master/{relative_path}"
         text, meta = self.http.fetch_text(url)
         matches = parse_openfootball_fixtures(
             text=text,

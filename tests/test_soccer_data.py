@@ -2,10 +2,15 @@ from __future__ import annotations
 
 import csv
 from pathlib import Path
+
 import pytest
 
 from scripts.import_soccer_data import upsert_matches
-from src.soccer.providers.openfootball import parse_openfootball_fixtures
+from src.soccer.providers.openfootball import (
+    OPENFOOTBALL_REPOS,
+    OpenFootballProvider,
+    parse_openfootball_fixtures,
+)
 from src.soccer.providers.statsbomb import summarize_shot_events
 
 
@@ -46,7 +51,11 @@ Fri Dec 19 2025
 Sat Jan 3
   15:00   Arsenal v Chelsea
 """
-    rows = parse_openfootball_fixtures(text, league="england", season="2025-26", source_url="https://example.invalid/fixtures.txt", source_retrieved_at_utc="2026-01-01T00:00:00Z")
+    rows = parse_openfootball_fixtures(
+        text, league="england", season="2025-26",
+        source_url="https://example.invalid/fixtures.txt",
+        source_retrieved_at_utc="2026-01-01T00:00:00Z",
+    )
     assert len(rows) == 2
     finished, upcoming = rows
     assert finished.match_date == "2025-12-19"
@@ -66,7 +75,9 @@ def test_openfootball_supports_result_rows_without_time():
 Sun Aug 17 2025
     Arsenal 1-0 (0-0) Manchester United
 """
-    rows = parse_openfootball_fixtures(text, "england", "2025-26", "https://example.invalid/fixtures.txt")
+    rows = parse_openfootball_fixtures(
+        text, "england", "2025-26", "https://example.invalid/fixtures.txt"
+    )
     assert len(rows) == 1
     assert rows[0].kickoff_time_local is None
     assert (rows[0].home_score, rows[0].away_score) == (1, 0)
@@ -79,13 +90,61 @@ def test_openfootball_rejects_unknown_league_and_bad_season():
         parse_openfootball_fixtures("", "england", "last-season", "https://example.invalid/file.txt")
 
 
+@pytest.mark.parametrize(
+    "league,expected_repo,expected_path",
+    [
+        ("england", "england", "2026-27/1-premierleague.txt"),
+        ("germany", "deutschland", "2026-27/1-bundesliga.txt"),
+        ("spain", "espana", "2026-27/1-liga.txt"),
+        ("italy", "italy", "2026-27/1-seriea.txt"),
+        ("france", "europe", "france/2026-27_fr1.txt"),
+    ],
+)
+def test_openfootball_provider_uses_real_repo_paths(tmp_path, league, expected_repo, expected_path):
+    provider = OpenFootballProvider(cache_dir=tmp_path)
+    captured = {}
+
+    def fake_fetch_text(url):
+        captured["url"] = url
+        return "", {
+            "source_updated_at": None,
+            "source_retrieved_at_utc": "2026-10-24T00:00:00Z",
+            "cache_status": "test",
+        }
+
+    provider.http.fetch_text = fake_fetch_text
+    assert provider.list_matches(league, "2026-27") == []
+    assert captured["url"] == (
+        f"https://raw.githubusercontent.com/openfootball/{expected_repo}/master/{expected_path}"
+    )
+
+
+def test_openfootball_paths_are_complete():
+    assert set(OPENFOOTBALL_REPOS) == {"england", "germany", "spain", "italy", "france"}
+    assert all("path_template" in row and "repo" in row for row in OPENFOOTBALL_REPOS.values())
+
+
 def test_upsert_matches_merges_feeds_and_updates_same_provider_record(tmp_path: Path):
     from src.soccer.schemas import SoccerMatch
-    base = dict(provider="openfootball", match_id="openfootball:abc", provider_match_id="abc", competition_id="openfootball:england:premierleague", competition_name="English Premier League", season_id="2026-27", season_name="2026/27", match_date="2026-08-21", kickoff_time_local="20:00", kickoff_timezone=None, kickoff_utc=None, match_week=1, home_team_id=None, home_team="Arsenal", away_team_id=None, away_team="Chelsea", home_score=None, away_score=None, match_state="scheduled", home_xg=None, away_xg=None, home_shots=None, away_shots=None, home_shots_on_target=None, away_shots_on_target=None, xg_status="not_provided", source_url="https://example.invalid/a.txt", source_updated_at=None, source_retrieved_at_utc="2026-08-01T00:00:00Z", source_cache_status="fresh", observed_at_utc="2026-08-01T00:00:00Z")
+
+    base = dict(
+        provider="openfootball", match_id="openfootball:abc", provider_match_id="abc",
+        competition_id="openfootball:england:premierleague", competition_name="English Premier League",
+        season_id="2026-27", season_name="2026/27", match_date="2026-08-21",
+        kickoff_time_local="20:00", kickoff_timezone=None, kickoff_utc=None, match_week=1,
+        home_team_id=None, home_team="Arsenal", away_team_id=None, away_team="Chelsea",
+        home_score=None, away_score=None, match_state="scheduled", home_xg=None, away_xg=None,
+        home_shots=None, away_shots=None, home_shots_on_target=None, away_shots_on_target=None,
+        xg_status="not_provided", source_url="https://example.invalid/a.txt",
+        source_updated_at=None, source_retrieved_at_utc="2026-08-01T00:00:00Z",
+        source_cache_status="fresh", observed_at_utc="2026-08-01T00:00:00Z",
+    )
     path = tmp_path / "matches.csv"
     assert upsert_matches(path, [SoccerMatch(**base)]) == 1
     updated = SoccerMatch(**{**base, "home_score": 2, "away_score": 0, "match_state": "finished"})
-    second = SoccerMatch(**{**base, "provider": "statsbomb", "match_id": "statsbomb:123", "provider_match_id": "123"})
+    second = SoccerMatch(**{
+        **base, "provider": "statsbomb", "match_id": "statsbomb:123", "provider_match_id": "123"
+    })
     assert upsert_matches(path, [updated, second]) == 2
     with path.open(newline="", encoding="utf-8") as handle:
         rows = list(csv.DictReader(handle))
