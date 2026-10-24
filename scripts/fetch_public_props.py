@@ -112,7 +112,7 @@ def _parse_card_layout(
     soup: BeautifulSoup,
     target: str,
     canonical_players: dict[str, tuple[int, str]],
-) -> list[dict[str, Any]]:
+) -> tuple[list[dict[str, Any]], bool]:
     """Fallback for the div/grid/card layouts used by newer prop-board pages.
 
     Rather than assuming every site uses an HTML <table>, identify the smallest
@@ -120,6 +120,7 @@ def _parse_card_layout(
     both signed prices. This stays conservative: it does not infer missing odds.
     """
     eligible: list[tuple[Any, str, float, list[tuple[float, str]]]] = []
+    saw_market_row = False
     for element in soup.find_all(True):
         raw = element.get_text(" ", strip=True)
         if not raw or len(raw) > 1000:
@@ -128,9 +129,15 @@ def _parse_card_layout(
         if len(odds) < 2:
             continue
         line = _fallback_decimal_line(raw)
-        if line is None or abs(line - round(line)) < 1e-9:
+        if line is None:
             continue
         compact = normalize_name(raw)
+        matching = [key for key in canonical_players if key and key in compact]
+        if not matching:
+            continue
+        saw_market_row = True
+        if abs(line - round(line)) < 1e-9:
+            continue
         eligible.append((element, compact, line, odds))
 
     # Each player can appear in several nested wrappers. Keep the shortest
@@ -159,7 +166,7 @@ def _parse_card_layout(
             "odds_under": odds_under,
             "bookmaker": f"Probetrics public board (over {over_book}; under {under_book})",
         })
-    return rows
+    return rows, saw_market_row
 
 
 def parse_props_html(
@@ -222,10 +229,13 @@ def parse_props_html(
             })
     if matched_tables == 0 or not rows_out:
         # Newer source versions use a grid/card layout rather than a <table>.
-        card_rows = _parse_card_layout(soup, target, canonical_players)
+        card_rows, saw_market_rows = _parse_card_layout(soup, target, canonical_players)
         if card_rows:
             log.info("parsed %s %s rows from card/grid markup", len(card_rows), target)
             return card_rows
+        if saw_market_rows:
+            log.info("recognized %s card/grid market rows; none had a supported non-integer line", target)
+            return []
         raise ValueError(
             "Could not parse this page as either a Player/Line/Over/Under table or a card/grid of player rows. "
             "The source may now render its markets client-side, or its markup may have changed."
