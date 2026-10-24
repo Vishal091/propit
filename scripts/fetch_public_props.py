@@ -49,6 +49,12 @@ def parse_line(value: str) -> float | None:
     return float(match.group(1)) if match else None
 
 
+def parse_line_move(value: str) -> float | None:
+    """Parse a source's signed line movement cell without guessing nonnumeric text."""
+    match = re.fullmatch(r"\s*([+-]?\d{1,3}(?:\.\d+)?)\s*", str(value or ""))
+    return float(match.group(1)) if match else None
+
+
 def parse_odds_and_book(value: str) -> tuple[float | None, str]:
     """Parse labelled odds (e.g. 'DK−128') or bare American odds (e.g. '165')."""
     raw = " ".join((value or "").replace("\xa0", " ").split())
@@ -215,6 +221,8 @@ def parse_props_html(
         headers = [cell.get_text(" ", strip=True) for cell in header_cells]
         idx_player = _header_index(headers, "player")
         idx_line = _header_index(headers, "line")
+        idx_open = _header_index(headers, "open")
+        idx_move = _header_index(headers, "move")
         idx_over = _header_index(headers, "over")
         idx_under = _header_index(headers, "under")
         if None in (idx_player, idx_line, idx_over, idx_under):
@@ -232,6 +240,8 @@ def parse_props_html(
             if links:
                 player = links[0]
             line = parse_line(cells[idx_line].get_text(" ", strip=True))
+            opening_line = parse_line(cells[idx_open].get_text(" ", strip=True)) if idx_open is not None and idx_open < len(cells) else None
+            source_line_move = parse_line_move(cells[idx_move].get_text(" ", strip=True)) if idx_move is not None and idx_move < len(cells) else None
             over_text = cells[idx_over].get_text(" ", strip=True)
             under_text = cells[idx_under].get_text(" ", strip=True)
             odds_over, over_book = parse_odds_and_book(over_text)
@@ -250,6 +260,8 @@ def parse_props_html(
                 "player_name": canonical_name,
                 "target": target,
                 "line": line,
+                "opening_line": opening_line,
+                "source_line_move": source_line_move,
                 "odds_over": odds_over,
                 "odds_under": odds_under,
                 "bookmaker_over": over_book,
@@ -473,8 +485,8 @@ def fetch_all(
     frame = pd.DataFrame(
         all_rows,
         columns=[
-            "player_id", "player_name", "target", "line", "odds_over", "odds_under",
-            "bookmaker_over", "bookmaker_under", "bookmaker", "market_source",
+            "player_id", "player_name", "target", "line", "opening_line", "source_line_move",
+            "odds_over", "odds_under", "bookmaker_over", "bookmaker_under", "bookmaker", "market_source",
         ],
     )
     frame = frame.dropna(subset=["line", "odds_over", "odds_under"])
