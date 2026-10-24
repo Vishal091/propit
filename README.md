@@ -27,7 +27,7 @@ Train PTS/REB/AST models on the two latest completed regular seasons selected by
 
     .\.venv\Scripts\python.exe -m src.train_model
 
-This uses the public NBA stats endpoint and caches downloaded responses under .cache/nba. It can take time and public NBA servers may rate-limit requests. Retrain the models after updates to the feature engineering so historical opponent-context features and next-game prediction features stay aligned.
+This uses the public NBA stats endpoint and caches downloaded responses under .cache/nba. It can take time and public NBA servers may rate-limit requests. Retrain the models after updates to the feature engineering so opponent context, minute/role proxies, usage proxies, cross-stat trends, and next-game prediction features stay aligned. Phase 2 expands the training feature schema, so run training again after pulling updates.
 
 ## Generate all-player projections
 
@@ -134,6 +134,7 @@ The tests cover player-isolated rolling features, odds arithmetic, season select
 ## Important limitations
 
 - Opponent defense and possession-volume context is reconstructed from player game logs using estimated possessions (FGA + 0.44 × FTA − OREB + TOV). It is an approximation, not an official NBA pace/defensive-rating feed; each historical feature is joined from games strictly before the target game's date.
+- Minutes/role context uses rolling minutes and recent-versus-season minute trends because the current feed does not provide a dependable starter/bench designation for every historical row. The usage proxy (FGA + 0.44 × FTA + TOV) is not the official NBA usage percentage.
 - The over/under probability currently uses each row's predicted 10th–90th percentile spread rather than one global residual standard deviation. It is still a distributional estimate, **not calibrated confidence**, and is capped to avoid extreme 0%/100% claims.
 - The probability calibration script requires historical pregame predictions and settled props. The current public importer only supplies a current snapshot, not historical lines/odds, so it cannot by itself establish historical betting ROI.
 - A low mean absolute error or high predicted probability is not proof of profitable betting.
