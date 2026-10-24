@@ -219,7 +219,7 @@ def parse_props_html(
                 "odds_under": odds_under,
                 "bookmaker": f"Probetrics public board (over {over_book}; under {under_book})",
             })
-    if matched_tables == 0:
+    if matched_tables == 0 or not rows_out:
         # Newer source versions use a grid/card layout rather than a <table>.
         card_rows = _parse_card_layout(soup, target, canonical_players)
         if card_rows:
