@@ -213,7 +213,7 @@ def main() -> None:
                 f"bets={metric['bets']} net={metric['net_units']:+.2f}u ROI={roi_text}"
             )
     print(f"\nHoldout rows with calibrated probabilities: {args.output}")
-    print("ROI is a historical simulation, not a guarantee; use only lines/prices actually available before each game.")
+    print("Brier/log loss evaluate probability quality. ROI includes only positive-EV bets with both prices and snapshot_at_utc; it remains a historical simulation.")
 
 
 if __name__ == "__main__":
