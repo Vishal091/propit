@@ -168,12 +168,23 @@ def main() -> None:
         history_path=args.history_output,
         imports_path=args.imports_output,
     )
+    pending_teams = []
+    try:
+        pending_teams = json.loads(result.get("teams_not_yet_submitted_json") or "[]")
+    except (json.JSONDecodeError, TypeError):
+        pass
+    coverage_note = (
+        f"Team report coverage parsed={result.get('team_report_coverage_parsed', False)}; "
+        f"unsubmitted_teams={','.join(pending_teams) if pending_teams else 'none detected'}; "
+        f"markers_resolved={result.get('team_submission_markers_resolved', False)}"
+    )
     print(
         "Official NBA injury report imported: "
         f"game_date={result['game_date']} players={result['players']} rows={result['rows_parsed']} "
         f"resolved_ids={result['resolved_player_ids']} unresolved_ids={result['unresolved_player_ids']}\n"
         f"Report timestamp (UTC): {result['reported_at_utc']}\n"
         f"Source: {result['report_url']}\n"
+        f"{coverage_note}\n"
         f"Current snapshot: {args.output}\nHistory: {args.history_output}"
     )
     if result["unresolved_player_ids"]:
