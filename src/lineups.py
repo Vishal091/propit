@@ -178,8 +178,11 @@ def attach_lineups(
             gate, reason = "UNVERIFIED", "Lineup role is blank or unrecognized."
         elif confirmation != "CONFIRMED":
             gate = "UNVERIFIED"
-            reason = reason_text or (
-                f"Source status is {source_status or confirmation}; a projected lineup cannot satisfy the strict gate."
+            source_detail = source_status or confirmation
+            reason = (
+                (reason_text + " ") if reason_text else ""
+            ) + (
+                f"Lineup status is {source_detail}; this is projected/unconfirmed and does not satisfy the strict gate."
             )
         else:
             gate = "CLEAR"
