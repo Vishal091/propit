@@ -12,7 +12,7 @@ from typing import Any
 import pandas as pd
 
 DEFAULT_AVAILABILITY_PATH = Path("data/player_availability.csv")
-DEFAULT_MAX_AGE_HOURS = 6.0
+DEFAULT_MAX_AGE_HOURS = 2.0
 
 OUTPUT_COLUMNS = (
     "availability_status",
