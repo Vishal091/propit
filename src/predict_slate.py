@@ -884,7 +884,7 @@ def _decorate_and_rank_candidates(
         elif is_placeholder:
             status, reason = "PLACEHOLDER_INPUT", "Replace the test/example source label with the real source or sportsbook where you checked the line and both prices."
             side = prob = market_prob = edge = ev = None
-        elif str(row.get("probability_gate_status") or "").upper() in {"INSUFFICIENT_DATA", "INSUFFICIENT_AVAILABILITY_DATA", "INSUFFICIENT_MINUTES_DATA"}:
+        elif str(row.get("probability_gate_status") or "").upper() in {"INSUFFICIENT_DATA", "INSUFFICIENT_AVAILABILITY_DATA", "INSUFFICIENT_MINUTES_DATA", "INSUFFICIENT_LINEUP_DATA"}:
             gate_status = str(row.get("probability_gate_status") or "INSUFFICIENT_DATA").upper()
             if gate_status == "INSUFFICIENT_AVAILABILITY_DATA":
                 reason_text = "No fresh Available/Probable status matched this player and scheduled game; probability withheld."
