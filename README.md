@@ -91,6 +91,12 @@ Enter one row per checked player with `player_id` or `player_name`, `team_abbrev
 
 The manual command timestamps the operator-verified role in UTC and upserts `data/player_lineups.csv`, with append-only history in `data/player_lineups_history.csv`. Automated projected rows are kept in a separate ledger so a recent projection cannot overwrite or shadow an existing confirmed role. Snapshot freshness defaults to two hours.
 
+### Research view versus qualified shortlist
+
+The dashboard includes a separate **Research view** for inspecting raw or market-shrunk estimates when strict availability or lineup checks prevent a decision-grade probability from being released. With a compatible same-book/no-vig market reference, the exploratory estimate shrinks the raw model toward the market using 15% model weight and 85% market weight. If no compatible no-vig reference exists, the view may show only the normalized raw model probability; edge and EV remain blank. When valid two-sided prices are available, it computes exploratory edge/EV, but never suggests a stake.
+
+Research-view rows are not qualified shortlist picks. Their availability/lineup states and strict screen reason remain available in the row's hover details. The **Shortlist** tab and `predictions/shortlist.csv` remain unchanged: unverified or questionable availability and unconfirmed roles cannot pass strict qualification. Research estimates are for debugging and context only, not betting recommendations.
+
 ### Fail-closed shortlist rules
 
 The CLI requires fresh availability and a fresh confirmed STARTER/BENCH snapshot by default. It also requires a usable minutes projection (at least three historical minute records), a current line and both prices, a market no-vig reference, a market snapshot no older than two hours, a calibrated edge of at least 4 percentage points, and positive expected value. It withholds the calibrated probability when availability, lineup role, minimum minutes history, or no-vig market data are missing. Unknown or stale inputs remain visible in the all-markets audit as explicit skip reasons.
