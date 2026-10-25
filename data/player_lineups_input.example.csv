@@ -1,0 +1,4 @@
+player_id,player_name,team_abbreviation,starting_status,reason,minutes_limit
+# Enter only confirmed STARTER or BENCH after checking a trusted live source.
+# Example row (comment it out or delete it before importing):
+# 1628369,Jayson Tatum,BOS,STARTER,Confirmed starting five, 
