@@ -98,6 +98,36 @@ def test_fresh_confirmed_manual_row_outranks_newer_projection(tmp_path):
     assert row["lineup_gate"] == "CLEAR"
 
 
+def test_fresh_projection_is_displayed_when_only_confirmed_row_is_stale(tmp_path):
+    confirmed_path = tmp_path / "player_lineups.csv"
+    auto_path = tmp_path / "player_lineups_auto.csv"
+    pd.DataFrame([{
+        "player_id": 11, "player_name": "Test Player", "team_abbreviation": "BOS",
+        "match_date": "2026-10-25", "starting_status": "BENCH",
+        "reported_at_utc": "2026-10-25T10:00:00Z", "source": "Official team announcement",
+    }]).to_csv(confirmed_path, index=False)
+    pd.DataFrame([{
+        "player_id": 11, "player_name": "Test Player", "team_abbreviation": "BOS",
+        "match_date": "2026-10-25", "starting_status": "STARTER",
+        "confirmation_status": "PROJECTED", "confidence_label": "PROJECTED",
+        "source_status": "Expected Lineup",
+        "reported_at_utc": "2026-10-25T14:55:00Z", "source": "RotoWire",
+    }]).to_csv(auto_path, index=False)
+    rows = pd.DataFrame([{
+        "player_id": 11, "player_name": "Test Player", "team_abbreviation": "BOS",
+        "match_date": "2026-10-25",
+    }])
+
+    result = attach_lineups(
+        rows, confirmed_path, auto_path=auto_path,
+        now_utc="2026-10-25T15:00:00Z", max_age_hours=2,
+    )
+    row = result.iloc[0]
+    assert row["lineup_status"] == "STARTER"
+    assert row["lineup_confirmation_status"] == "PROJECTED"
+    assert row["lineup_gate"] == "UNVERIFIED"
+
+
 def test_stale_or_conflicting_lineup_is_not_confirmed(tmp_path):
     path = tmp_path / "lineups.csv"
     pd.DataFrame([{
