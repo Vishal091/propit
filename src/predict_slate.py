@@ -939,7 +939,12 @@ def _decorate_and_rank_candidates(
                 elif edge >= min_edge and ev > max(0.0, min_ev) and prob >= min_probability:
                     status = "SHORTLIST_CANDIDATE"
                     reason = f"Calibrated {side}: edge {edge:.1%}, EV {ev:.3f} units per unit staked; minutes remain proxy-based and confidence is capped."
-                    if availability_gate != "CLEAR":
+                    if str(row.get("availability_status") or "").strip().upper() == "NOT_LISTED":
+                        reason += (
+                            " The fresh official report has no player-specific listing for this player; this is not an "
+                            "explicit Available designation, so recheck status close to tip-off."
+                        )
+                    elif availability_gate != "CLEAR":
                         reason += f" Availability is {availability_gate}; a fresh official report is required. {availability_reason}"
                 else:
                     status = "BELOW_THRESHOLDS"
