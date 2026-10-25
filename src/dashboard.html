@@ -401,7 +401,7 @@ input[type=date],select{border:1px solid var(--line);border-radius:9px;backgroun
       var data=await request("/api/slate?view="+encodeURIComponent(slateView));
       lastSlate=data.rows||[];
       $("slate-count-title").textContent=(data.count||0).toLocaleString()+" "+(slateView==="shortlist"?"shortlist candidates":"scored market rows");
-      renderSlate(lastSlate);
+      renderSlate(lastSlate, data.diagnostics || null);
       if(slateView==="shortlist")renderOverview(lastSlate);
       return data;
     }catch(err){$("slate-table").innerHTML=emptyRow(23,"Could not load slate",err.message);}
@@ -415,8 +415,23 @@ input[type=date],select{border:1px solid var(--line);border-radius:9px;backgroun
     var ageText=age===null?"":" · "+(age<1?Math.round(age*60)+"m":fixed(age,1)+"h");
     return '<span class="status-pill '+cls+'" title="'+escapeHtml(note)+'">'+escapeHtml(gate)+'</span><div class="muted-cell" style="font-size:10px;margin-top:3px">'+escapeHtml(status)+escapeHtml(ageText)+'</div>';
   }
-  function renderSlate(rows){
-    if(!rows.length){$("slate-table").innerHTML=emptyRow(23,slateView==="shortlist"?"No qualifying candidates":"No scored markets","Run Refresh Slate after confirming the model artifacts are available.");return;}
+  function renderSlate(rows, diagnostics){
+    if(!rows.length){
+      var emptyTitle=slateView==="shortlist"?"No qualifying candidates":"No scored markets";
+      var emptyDetail="";
+      if(slateView==="shortlist" && diagnostics && Number(diagnostics.scored_rows||0)>0){
+        var blockers=(diagnostics.status_counts||[]).map(function(item){
+          return String(item.status)+" ("+Number(item.count||0)+")";
+        }).join(", ");
+        emptyDetail=Number(diagnostics.scored_rows).toLocaleString()+" markets were scored, but none passed every shortlist screen. Most common status codes: "+(blockers||"no status breakdown available")+". Select All markets to inspect each row's Screen and hover details; update lineup or availability data where needed. The strict gates have not been relaxed.";
+      }else if(slateView==="shortlist"){
+        emptyDetail="No scored rows are available yet. Use Refresh & score to import the latest market board and regenerate predictions. If that action fails, open Workflow activity and review the first failed step.";
+      }else{
+        emptyDetail="No scored markets are available. Use Refresh & score and review Workflow activity if a step fails.";
+      }
+      $("slate-table").innerHTML=emptyRow(23,emptyTitle,emptyDetail);
+      return;
+    }
     $("slate-table").innerHTML=rows.map(function(r,i){
       var prob=num(r.selected_model_probability);
       if(prob===null) prob=num(String(r.recommended_side).toUpperCase()==="UNDER"?r.model_p_under:r.model_p_over);
