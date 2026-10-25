@@ -494,7 +494,10 @@ def _build_minutes_context(
         lineup_status = str(row.get("lineup_status") or "UNKNOWN").upper()
         if lineup_gate != "CLEAR":
             lineup_status = "UNKNOWN"
-        return_limit = row.get("availability_minutes_limit")
+        availability_limit = _number_or_none(row.get("availability_minutes_limit"))
+        lineup_limit = _number_or_none(row.get("minutes_limit"))
+        known_limits = [value for value in (availability_limit, lineup_limit) if value is not None and 0 < value <= 48]
+        return_limit = min(known_limits) if known_limits else None
         if availability_gate not in {"CLEAR", "REVIEW"}:
             return_limit = None
         projection = project_minutes(
