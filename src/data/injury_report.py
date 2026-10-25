@@ -243,18 +243,19 @@ def extract_team_submission_metadata(
     # Use table output only if positional extraction yielded no pages at all.
     datasets = positioned_pages if positioned_pages else tables
     for table in datasets:
-        current_team = ""
         for raw_row in table:
             if not raw_row:
                 continue
             values = [_clean(value) for value in raw_row]
+            # Only resolve a pending marker from the team cell on that same row.
+            # Carrying the previous team's name forward can falsely mark a team
+            # as unsubmitted when extraction omitted the marker row's team cell.
             team_cell = _row_value(raw_row, 3)
-            if team_cell and team_cell.upper() in _TEAM_ABBREVIATIONS:
-                current_team = _TEAM_ABBREVIATIONS[team_cell.upper()]
+            row_team = _TEAM_ABBREVIATIONS.get(team_cell.upper(), "")
             joined = " ".join(values).upper()
             if "NOT YET SUBMITTED" in joined:
-                if current_team:
-                    not_submitted.add(current_team)
+                if row_team:
+                    not_submitted.add(row_team)
                 else:
                     unresolved_marker = True
 
