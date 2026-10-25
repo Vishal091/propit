@@ -425,7 +425,7 @@ def build_health_report(root: str | Path = DEFAULT_ROOT, now: str | datetime | p
         "recent_audit": events[:30],
         "limitations": [
             "Local file age and capture timestamps cannot prove the upstream source is complete or correct.",
-            "Availability checks cover only statuses manually entered into the local CSV; no injury feed is fetched automatically.",
+            "Availability decisions use locally saved, timestamped injury-report rows and team-submission metadata; freshness and parsing cannot guarantee a player's final status.",
             "This tool is for local research operations and does not submit bets.",
         ],
     }
