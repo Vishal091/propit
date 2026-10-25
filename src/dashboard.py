@@ -266,12 +266,12 @@ def _pending_confirmation_candidates(
     max_market_age_hours: float = 2.0,
     max_data_age_days: int = 14,
 ) -> tuple[pd.DataFrame, dict[str, Any]]:
-    """Return research-only signals blocked specifically by lineup/availability evidence.
+    """Build a research-only queue for evidence-blocked candidates.
 
-    This view deliberately does not relax the qualified shortlist. Candidates must
-    still have a positive exploratory edge and EV, adequate research probability,
-    a fresh market/data row, paired prices, and a usable same-book no-vig reference.
-    Explicitly unavailable players and rows blocked for unrelated reasons are omitted.
+    Positive research signals sort first. Watch-only rows are also surfaced when
+    they pass data, minutes, market integrity, price-history, and safety checks,
+    but fail one of the positive edge/EV/probability tests. This never changes
+    shortlist eligibility or represents a qualified bet.
     """
     if isinstance(limit, bool) or limit < 1 or limit > 200:
         raise ValueError("limit must be between 1 and 200")
@@ -280,9 +280,15 @@ def _pending_confirmation_candidates(
 
     if frame.empty:
         return frame.copy(), {
-            "scored_rows": 0, "evidence_blocked_rows": 0,
-            "positive_research_signal_rows": 0, "pending_rows": 0,
+            "scored_rows": 0,
+            "evidence_blocked_rows": 0,
+            "research_estimate_rows": 0,
+            "positive_research_signal_rows": 0,
+            "watch_only_rows": 0,
+            "pending_rows": 0,
             "blocker_counts": {},
+            "filter_stage_counts": {},
+            "filter_rejections": {},
         }
 
     statuses = frame.get(
@@ -290,9 +296,10 @@ def _pending_confirmation_candidates(
     ).fillna("").astype(str).str.strip().str.upper()
     evidence_mask = statuses.isin(_PENDING_CONFIRMATION_STATUSES)
     evidence = frame.loc[evidence_mask].copy()
+    evidence_statuses = statuses.loc[evidence_mask]
     blocker_counts = {
         str(status): int(count)
-        for status, count in statuses.loc[evidence_mask].value_counts().items()
+        for status, count in evidence_statuses.value_counts().items()
     }
 
     def numeric(rows: pd.DataFrame, column: str) -> pd.Series:
@@ -303,12 +310,16 @@ def _pending_confirmation_candidates(
     diag: dict[str, Any] = {
         "scored_rows": int(len(frame)),
         "evidence_blocked_rows": int(len(evidence)),
+        "research_estimate_rows": 0,
         "positive_research_signal_rows": 0,
+        "watch_only_rows": 0,
         "pending_rows": 0,
         "blocker_counts": blocker_counts,
         "min_research_probability": min_probability,
         "max_market_age_hours": max_market_age_hours,
         "max_data_age_days": max_data_age_days,
+        "filter_stage_counts": {},
+        "filter_rejections": {},
     }
     if evidence.empty:
         return evidence, diag
@@ -330,14 +341,14 @@ def _pending_confirmation_candidates(
     market_over = numeric(evidence, "market_no_vig_p_over")
     market_under = numeric(evidence, "market_no_vig_p_under")
 
-    signal_mask = (
+    research_ready = (
         research_status.eq("RESEARCH_ESTIMATE_AVAILABLE")
         & side.isin({"OVER", "UNDER"})
-        & edge.gt(0)
-        & ev.gt(0)
-        & probability.ge(min_probability)
+        & probability.notna()
+        & edge.notna()
+        & ev.notna()
     )
-    diag["positive_research_signal_rows"] = int(signal_mask.sum())
+    diag["research_estimate_rows"] = int(research_ready.sum())
 
     market_method = evidence.get(
         "market_no_vig_method", pd.Series("", index=evidence.index)
@@ -351,12 +362,12 @@ def _pending_confirmation_candidates(
     line_source = evidence.get(
         "line_source", pd.Series("", index=evidence.index)
     ).fillna("").astype(str).str.strip().str.casefold()
-    snapshot_stamp = evidence.get(
-        "market_snapshot_at_utc", pd.Series("", index=evidence.index)
-    ).fillna("").astype(str).str.strip()
     market_source = evidence.get(
         "market_source", pd.Series("", index=evidence.index)
     ).fillna("").astype(str).str.strip().str.casefold()
+    snapshot_stamp = evidence.get(
+        "market_snapshot_at_utc", pd.Series("", index=evidence.index)
+    ).fillna("").astype(str).str.strip()
     is_public = (
         line_source.eq("public_web_import")
         | market_source.str.contains(r"public board|flash odds", regex=True, na=False)
@@ -392,106 +403,116 @@ def _pending_confirmation_candidates(
         )
     )
 
-    eligible = (
-        signal_mask
-        & market_age.ge(0) & market_age.le(max_market_age_hours)
-        & data_age.ge(0) & data_age.le(max_data_age_days)
-        & line.notna() & line.ge(0)
-        & over_odds.notna() & over_odds.ne(0)
-        & under_odds.notna() & under_odds.ne(0)
-        & market_over.ge(0) & market_over.le(1)
-        & market_under.ge(0) & market_under.le(1)
-        & market_method.ne("") & ~market_method.eq("cross_book_pair_unavailable")
-        & ~placeholder
-        & minutes_mean.notna() & minutes_std.notna() & minutes_sample.ge(3)
-        & ~probability_gate.isin({"INSUFFICIENT_DATA", "INSUFFICIENT_MINUTES_DATA", "RAW_MODEL_CAP_RED_FLAG", "CALIBRATED_CAP_RED_FLAG"})
-        & (~is_public | snapshot_stamp.ne(""))
-        & (~is_public | movement_present)
-        & (~movement_against | movement_documented)
-        & (~edge.abs().gt(0.10) | edge_documented)
+    stages: list[tuple[str, pd.Series]] = [
+        ("research_estimate", research_ready),
+        ("fresh_market", market_age.ge(0) & market_age.le(max_market_age_hours)),
+        ("fresh_player_data", data_age.ge(0) & data_age.le(max_data_age_days)),
+        ("line_and_both_prices", line.notna() & line.ge(0) & over_odds.notna() & over_odds.ne(0) & under_odds.notna() & under_odds.ne(0)),
+        ("same_book_no_vig", market_over.ge(0) & market_over.le(1) & market_under.ge(0) & market_under.le(1) & market_method.ne("") & ~market_method.eq("cross_book_pair_unavailable")),
+        ("real_source_and_timestamp", ~placeholder & (~is_public | snapshot_stamp.ne(""))),
+        ("usable_minutes_and_model", minutes_mean.notna() & minutes_std.notna() & minutes_sample.ge(3) & ~probability_gate.isin({"INSUFFICIENT_DATA", "INSUFFICIENT_MINUTES_DATA", "RAW_MODEL_CAP_RED_FLAG", "CALIBRATED_CAP_RED_FLAG"})),
+        ("prior_market_movement", ~is_public | movement_present),
+        ("documented_adverse_movement", ~movement_against | movement_documented),
+        ("documented_extreme_edge", ~edge.abs().gt(0.10) | edge_documented),
+    ]
+
+    cumulative = research_ready.copy()
+    stage_counts: dict[str, int] = {"evidence_blocked": int(len(evidence))}
+    rejections: dict[str, int] = {}
+    previous_count = int(cumulative.sum())
+    stage_counts["research_estimate"] = previous_count
+    rejections["missing_research_estimate_or_edge_ev"] = int(len(evidence) - previous_count)
+    for index, (name, condition) in enumerate(stages[1:], start=1):
+        cumulative = cumulative & condition.fillna(False)
+        count = int(cumulative.sum())
+        stage_counts[name] = count
+        rejections["failed_" + name] = max(0, previous_count - count)
+        previous_count = count
+
+    quality_pass = cumulative
+    signal_mask = (
+        edge.gt(0)
+        & ev.gt(0)
+        & probability.ge(min_probability)
     )
-    result = evidence.loc[eligible].copy()
-    result["_pending_ev"] = ev.loc[eligible]
-    result["_pending_edge"] = edge.loc[eligible]
-    result["_pending_probability"] = probability.loc[eligible]
+    priority_mask = quality_pass & signal_mask
+    diag["positive_research_signal_rows"] = int(priority_mask.sum())
+    diag["watch_only_rows"] = int((quality_pass & ~signal_mask).sum())
+    diag["filter_stage_counts"] = stage_counts
+    diag["filter_rejections"] = rejections
+
+    result = evidence.loc[quality_pass].copy()
+    if result.empty:
+        diag["pending_rows"] = 0
+        return result, diag
+
+    # Explain the actual research-signal miss instead of silently hiding a row.
+    selected_edge = edge.loc[quality_pass]
+    selected_ev = ev.loc[quality_pass]
+    selected_probability = probability.loc[quality_pass]
+    labels: list[str] = []
+    notes: list[str] = []
+    for idx in result.index:
+        if bool(priority_mask.loc[idx]):
+            labels.append("POSITIVE RESEARCH SIGNAL")
+            notes.append("Positive exploratory edge and EV; research probability meets the monitoring threshold. Still pending verified evidence.")
+        elif pd.isna(selected_edge.loc[idx]) or selected_edge.loc[idx] <= 0:
+            labels.append("WATCH ONLY · EDGE NOT POSITIVE")
+            notes.append("Research estimate is available, but its selected-side edge is not positive.")
+        elif pd.isna(selected_ev.loc[idx]) or selected_ev.loc[idx] <= 0:
+            labels.append("WATCH ONLY · EV NOT POSITIVE")
+            notes.append("Research estimate is available, but its selected-side expected value is not positive.")
+        elif pd.isna(selected_probability.loc[idx]) or selected_probability.loc[idx] < min_probability:
+            labels.append("WATCH ONLY · BELOW PROBABILITY THRESHOLD")
+            notes.append(f"Research probability is below the {min_probability:.0%} monitoring threshold.")
+        else:
+            labels.append("WATCH ONLY")
+            notes.append("Research signal does not meet every priority-monitoring condition.")
+    result["pending_label"] = labels
+    result["pending_note"] = notes
+    result["_priority_sort"] = (~priority_mask.loc[quality_pass]).astype(int)
+    result["_pending_ev_sort"] = ev.loc[quality_pass]
+    result["_pending_edge_sort"] = edge.loc[quality_pass]
+    result["_pending_probability_sort"] = probability.loc[quality_pass]
     result = result.sort_values(
-        ["_pending_ev", "_pending_edge", "_pending_probability"],
-        ascending=[False, False, False], kind="stable",
-    ).head(limit).drop(columns=["_pending_ev", "_pending_edge", "_pending_probability"])
+        ["_priority_sort", "_pending_ev_sort", "_pending_edge_sort", "_pending_probability_sort"],
+        ascending=[True, False, False, False],
+        na_position="last",
+        kind="stable",
+    ).head(limit).drop(
+        columns=["_priority_sort", "_pending_ev_sort", "_pending_edge_sort", "_pending_probability_sort"]
+    )
     result.insert(0, "pending_rank", range(1, len(result) + 1))
     diag["pending_rows"] = int(len(result))
+    diag["returned_positive_signals"] = int(result["pending_label"].eq("POSITIVE RESEARCH SIGNAL").sum())
+    diag["returned_watch_only"] = int(len(result) - diag["returned_positive_signals"])
     return result, diag
-
-
-@app.get("/api/slate")
-def api_slate(view: str = Query(default="shortlist", pattern="^(shortlist|all|research)$")) -> dict[str, Any]:
-    path = SHORTLIST if view == "shortlist" else LATEST
-    frame = _read_csv(path)
-    diagnostics: dict[str, Any] = {}
-    if view == "research" and not frame.empty:
-        if "research_selected_ev" in frame.columns:
-            ev_values = pd.to_numeric(frame["research_selected_ev"], errors="coerce")
-            edge_values = (
-                pd.to_numeric(frame["research_selected_edge"], errors="coerce")
-                if "research_selected_edge" in frame.columns
-                else pd.Series([float("nan")] * len(frame), index=frame.index, dtype="float64")
-            )
-            frame["_research_ev_sort"] = ev_values
-            frame["_research_edge_sort"] = edge_values
-            frame = frame.sort_values(
-                ["_research_ev_sort", "_research_edge_sort"],
-                ascending=[False, False], na_position="last", kind="stable",
-            ).drop(columns=["_research_ev_sort", "_research_edge_sort"])
-            research_probabilities = (
-                pd.to_numeric(frame["research_model_p_over"], errors="coerce")
-                if "research_model_p_over" in frame.columns
-                else pd.Series([float("nan")] * len(frame), index=frame.index, dtype="float64")
-            )
-            research_ev_values = (
-                pd.to_numeric(frame["research_selected_ev"], errors="coerce")
-                if "research_selected_ev" in frame.columns
-                else pd.Series([float("nan")] * len(frame), index=frame.index, dtype="float64")
-            )
-            available = int(research_probabilities.notna().sum())
-            with_ev = int(research_ev_values.notna().sum())
-            diagnostics = {
-                "scored_rows": int(len(frame)),
-                "rows_with_research_estimates": available,
-                "rows_without_research_estimates": int(len(frame) - available),
-                "rows_with_research_ev": with_ev,
-                "notice": "Research probabilities are raw when no compatible no-vig reference exists; otherwise they use 15% raw-model weight and 85% market weight. Edge/EV are withheld without a valid no-vig market and both side prices. Research rows never satisfy strict shortlist gates.",
-            }
-        else:
-            diagnostics = {
-                "scored_rows": int(len(frame)),
-                "rows_with_research_estimates": 0,
-                "rows_without_research_estimates": int(len(frame)),
-                "notice": "Research columns are not present in this saved snapshot. Click Refresh & score to regenerate predictions with the research view enabled.",
-            }
-    result = {"view": view, "count": int(len(frame)), "rows": _records(frame.head(500))}
-    if view == "shortlist" and frame.empty:
-        result["diagnostics"] = _shortlist_diagnostics(_read_csv(LATEST))
-    if diagnostics:
-        result["diagnostics"] = diagnostics
-    return result
 
 
 @app.get("/api/pending-confirmation")
 def api_pending_confirmation(limit: int = Query(default=50, ge=1, le=200)) -> dict[str, Any]:
-    """Return positive research signals held out of the shortlist by evidence gates."""
+    """Return research-only leads held out of the strict shortlist by evidence gates."""
     latest = _read_csv(LATEST)
     rows, diagnostics = _pending_confirmation_candidates(latest, limit=limit)
     if rows.empty:
+        stages = diagnostics.get("filter_stage_counts", {})
+        reject_counts = diagnostics.get("filter_rejections", {})
         message = (
-            "No candidates currently meet the positive research-signal and fresh-market screens "
-            "while being blocked specifically by lineup or availability evidence. This view is "
-            "research-only; it never changes qualified shortlist eligibility."
+            "No pending rows passed the research-data and market-integrity screens. "
+            f"Scored rows: {diagnostics.get('scored_rows', 0)}; "
+            f"evidence-blocked rows: {diagnostics.get('evidence_blocked_rows', 0)}; "
+            f"rows with usable research edge/EV: {diagnostics.get('research_estimate_rows', 0)}. "
+            f"Filter stage counts: {stages}. Filter rejections: {reject_counts}. "
+            "No shortlist gates were relaxed."
         )
     else:
+        positive = int(diagnostics.get("returned_positive_signals", 0))
+        watch = int(diagnostics.get("returned_watch_only", 0))
         message = (
-            "These are research-only leads with positive exploratory edge and EV that are blocked "
-            "by lineup or availability evidence. Confirm the player and role with a current trusted "
-            "source, then refresh and rescore. Rows here are not qualified picks."
+            f"Returned {len(rows)} research-only leads: {positive} positive research signal(s), "
+            f"{watch} watch-only row(s). Positive signals sort first; watch-only rows explicitly "
+            "show which edge/EV/probability check they missed. All remain blocked from the qualified "
+            "shortlist until current lineup/availability evidence is verified and the full slate is rescored."
         )
     return {
         "count": int(len(rows)),
@@ -499,9 +520,9 @@ def api_pending_confirmation(limit: int = Query(default=50, ge=1, le=200)) -> di
         "diagnostics": diagnostics,
         "message": message,
         "warning": (
-            "Pending confirmation is not an approved bet list. Research probabilities use the exploratory "
-            "model/market blend; strict edge, availability, confirmed-role, minutes and exposure screens "
-            "must be rerun after evidence is updated."
+            "This is a research and follow-up queue, not an approved bet list. Watch-only rows may fail "
+            "edge, EV, or research-probability thresholds. Pending status never relaxes the qualified "
+            "shortlist's strict availability, confirmed-role, market, minutes, and exposure controls."
         ),
     }
 
