@@ -1007,13 +1007,24 @@ def _decorate_and_rank_candidates(
         game_counts[game_key] = game_counts.get(game_key, 0) + 1
         player_game_seen.add(player_key)
         daily_stake += stake
-    shortlist = pd.DataFrame(accepted)
+    # Keep a valid CSV schema even when every candidate is rejected by
+    # game-exposure or stake controls. A zero-byte shortlist is a valid
+    # "no qualified picks" outcome, but it breaks the dashboard's CSV reader.
+    shortlist_columns = [column for column in shortlist.columns if column != "rank"]
+    for column in (
+        "suggested_stake_fraction",
+        "suggested_stake_percent",
+        "daily_exposure_after_pick_percent",
+    ):
+        if column not in shortlist_columns:
+            shortlist_columns.append(column)
+    shortlist = pd.DataFrame(accepted, columns=shortlist_columns)
     if not shortlist.empty:
         shortlist = shortlist.sort_values(
             ["selected_ev_per_1_unit", "selected_model_edge", "selected_model_probability"],
             ascending=[False, False, False], kind="stable",
         ).reset_index(drop=True)
-        shortlist.insert(0, "rank", range(1, len(shortlist) + 1))
+    shortlist.insert(0, "rank", range(1, len(shortlist) + 1))
     return result, shortlist
 
 
