@@ -694,16 +694,29 @@ def _calibrate_market_probabilities(out: pd.DataFrame) -> pd.DataFrame:
         push = _number_or_none(row.get("p_push"))
         push = max(0.0, min(1.0, push or 0.0))
         availability_gate = str(row.get("availability_gate") or "UNVERIFIED").strip().upper()
-        minutes_status = str(row.get("minutes_projection_status") or "ROLLING_PROXY_ONLY").strip().upper()
-        minutes_confirmed = str(row.get("minutes_role_confirmed") or "").strip().lower() in {"1", "true", "yes", "confirmed"}
-        minutes_reliable = minutes_status == "VERIFIED_DISTRIBUTION" and minutes_confirmed
-        uncertain = availability_gate != "CLEAR" or not minutes_reliable
+        lineup_gate = str(row.get("lineup_gate") or "UNVERIFIED").strip().upper()
+        minutes_mean = _number_or_none(row.get("minutes_projection_mean"))
+        minutes_std = _number_or_none(row.get("minutes_projection_std"))
+        minutes_sample = _number_or_none(row.get("minutes_sample_size")) or 0
+        minutes_confirmed_value = row.get("minutes_role_confirmed")
+        minutes_confirmed = minutes_confirmed_value is True or str(minutes_confirmed_value).strip().lower() in {"1", "true", "yes"}
+        minutes_stable_value = row.get("minutes_stable")
+        minutes_stable = minutes_stable_value is True or str(minutes_stable_value).strip().lower() in {"1", "true", "yes"}
+        minutes_reliable = bool(
+            minutes_mean is not None and minutes_std is not None and minutes_sample >= 10
+            and minutes_stable and minutes_confirmed and lineup_gate == "CLEAR"
+        )
+        uncertain = not minutes_reliable
         cap = 0.65 if uncertain else 0.72
-        weight = 0.50 if not uncertain else 0.25
+        weight = 0.40 if minutes_reliable else 0.25
         calibrated: float | None = None
         gate = "INSUFFICIENT_DATA"
 
-        if raw_over is not None and raw_under is not None and market_over is not None:
+        if availability_gate != "CLEAR":
+            gate = "INSUFFICIENT_AVAILABILITY_DATA"
+        elif minutes_mean is None or minutes_std is None or minutes_sample < 3:
+            gate = "INSUFFICIENT_MINUTES_DATA"
+        elif raw_over is not None and raw_under is not None and market_over is not None:
             raw_total = raw_over + raw_under
             raw_conditional_over = raw_over / raw_total if raw_total > 1e-9 else raw_over
             raw_flag = exceeds_probability_cap(raw_conditional_over, uncertain=uncertain)
@@ -726,11 +739,12 @@ def _calibrate_market_probabilities(out: pd.DataFrame) -> pd.DataFrame:
         caps.append(cap if raw_over is not None else None)
         gates.append(gate)
         confidence_grades.append("B" if gate == "CALIBRATED" and not uncertain else "C")
-        main_risks.append(
-            "Minutes are rolling-proxy estimates, not a distribution; confirm current rotation, starter status, and injury limits."
-            if not minutes_reliable else
-            "Check late lineup changes and closing market movement."
-        )
+        risk_note = str(row.get("minutes_uncertainty_reason") or "").strip()
+        if not risk_note and not minutes_reliable:
+            risk_note = "Minutes/role distribution is uncertain; confirm rotation and return limits."
+        if minutes_reliable:
+            risk_note = "Historical minutes distribution is stable and starter/bench role is timestamp-confirmed; still verify late changes."
+        main_risks.append(risk_note or "Check late lineup changes and closing market movement.")
         edge_over_values.append(calibrated - market_over if calibrated is not None and market_over is not None else None)
         edge_under_values.append((1.0 - calibrated) - market_under if calibrated is not None and market_under is not None else None)
 
