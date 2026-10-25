@@ -153,6 +153,13 @@ def parse_injury_table_rows(
                 continue
             if status.casefold() in {"status", "player"}:
                 continue
+            # PDF extraction can occasionally shift report metadata (for example,
+            # "10/25/26 06:45") into the player column. Accept only real-looking
+            # names and the statuses used by the official NBA injury report.
+            if not any(character.isalpha() for character in player_name):
+                continue
+            if status.casefold() not in {"available", "probable", "questionable", "doubtful", "out"}:
+                continue
             abbreviation = _TEAM_ABBREVIATIONS.get(current_team.upper(), "")
             collected.append({
                 "scheduled_date": target_day.isoformat(),
