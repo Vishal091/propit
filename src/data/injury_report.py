@@ -230,34 +230,42 @@ def positioned_words_to_rows(words: list[dict[str, Any]], page_width: float) -> 
 def extract_team_submission_metadata(
     tables: list[list[list[Any]]],
     positioned_pages: list[list[list[str]]],
+    *,
+    target_date: str | date,
 ) -> dict[str, Any]:
-    """Capture explicit NOT YET SUBMITTED team markers from the raw report rows.
+    """Capture NOT YET SUBMITTED markers only for the selected game's date.
 
-    This does not label any player Available. It records team-level report
-    coverage so downstream matching can distinguish an unlisted player on a
-    submitted report from a team whose report is explicitly pending.
+    Official PDFs can contain report rows for more than one date. A marker for
+    a later game must not make that team's report appear pending for today's
+    game. This metadata never labels any individual player Available.
     """
+    target_day = pd.Timestamp(target_date).date()
     not_submitted: set[str] = set()
     unresolved_marker = False
     # Prefer coordinates, which preserve the official seven-column layout.
     # Use table output only if positional extraction yielded no pages at all.
     datasets = positioned_pages if positioned_pages else tables
     for table in datasets:
+        active_date: date | None = None
         for raw_row in table:
             if not raw_row:
                 continue
             values = [_clean(value) for value in raw_row]
-            # Only resolve a pending marker from the team cell on that same row.
-            # Carrying the previous team's name forward can falsely mark a team
-            # as unsubmitted when extraction omitted the marker row's team cell.
+            parsed_date = _parse_date_cell(_row_value(raw_row, 0))
+            if parsed_date is not None:
+                active_date = parsed_date
+            joined = " ".join(values).upper()
+            if "NOT YET SUBMITTED" not in joined or active_date != target_day:
+                continue
+
+            # Resolve only from the team column on this same row. Do not
+            # inherit a prior team's name if PDF extraction lost this cell.
             team_cell = _row_value(raw_row, 3)
             row_team = _TEAM_ABBREVIATIONS.get(team_cell.upper(), "")
-            joined = " ".join(values).upper()
-            if "NOT YET SUBMITTED" in joined:
-                if row_team:
-                    not_submitted.add(row_team)
-                else:
-                    unresolved_marker = True
+            if row_team:
+                not_submitted.add(row_team)
+            else:
+                unresolved_marker = True
 
     return {
         "teams_not_yet_submitted": sorted(not_submitted),
@@ -358,7 +366,9 @@ def fetch_official_injury_report(
             f"table_count={len(extracted_tables)}; positioned_pages={len(positioned_rows)}; "
             f"text_preview={preview[:500]!r}. This diagnostic will help fix any layout change."
         )
-    team_submission_meta = extract_team_submission_metadata(extracted_tables, positioned_rows)
+    team_submission_meta = extract_team_submission_metadata(
+        extracted_tables, positioned_rows, target_date=target,
+    )
     meta = {
         **team_submission_meta,
         "game_date": target.isoformat(),
