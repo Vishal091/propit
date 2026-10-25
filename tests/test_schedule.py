@@ -144,6 +144,16 @@ def test_espn_schedule_map_normalizes_common_abbreviation_variants():
     assert result["NYK"]["opponent_abbreviation"] == "GSW"
 
 
+def test_espn_schedule_map_normalizes_utah_long_abbreviation():
+    payloads = [{"events": [_espn_event("2026-10-25", "pre", "LAL", "UTAH")]}]
+
+    result = build_espn_next_game_map(payloads, as_of=date(2026, 10, 24))
+
+    assert "UTA" in result
+    assert result["UTA"]["opponent_abbreviation"] == "LAL"
+    assert result["LAL"]["opponent_abbreviation"] == "UTA"
+
+
 def test_espn_schedule_map_does_not_require_exactly_two_calendar_days():
     payloads = [{"events": [_espn_event("2026-10-24", "pre", "CHI", "BKN")]}]
 
