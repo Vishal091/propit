@@ -81,12 +81,12 @@ def test_calibration_shrinks_toward_market_and_keeps_push_separate():
         "odds_under_american": -110,
     }])
     scored = _calibrate_market_probabilities(frame).iloc[0]
-    assert scored["calibration_model_weight"] == pytest.approx(0.50)
-    assert scored["calibrated_p_over"] == pytest.approx(0.55)
-    assert scored["calibrated_p_under"] == pytest.approx(0.45)
+    assert scored["calibration_model_weight"] == pytest.approx(0.40)
+    assert scored["calibrated_p_over"] == pytest.approx(0.56)
+    assert scored["calibrated_p_under"] == pytest.approx(0.44)
     assert scored["p_push"] == pytest.approx(0.10)
     assert scored["probability_gate_status"] == "CALIBRATED"
-    assert scored["ev_over_per_1_unit"] == pytest.approx(0.045)
+    assert scored["ev_over_per_1_unit"] == pytest.approx(0.062)
 
 
 def test_raw_probability_cap_breach_is_not_silently_clipped():
