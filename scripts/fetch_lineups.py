@@ -12,7 +12,11 @@ from typing import Any
 
 import pandas as pd
 
-from src.data.lineup_sources import OUTPUT_COLUMNS, fetch_rotowire_lineups
+from src.data.lineup_sources import (
+    OUTPUT_COLUMNS,
+    LineupSourceUnavailableError,
+    fetch_rotowire_lineups,
+)
 from src.data.nba_client import get_active_players
 from src.lineups import DEFAULT_AUTO_LINEUP_PATH
 from src.player_identity import normalize_player_name
@@ -136,12 +140,15 @@ def main() -> None:
     except ValueError:
         parser.error("--game-date must be a real YYYY-MM-DD date")
 
-    result = import_lineups(
-        args.game_date,
-        output_path=args.output,
-        history_path=args.history_output,
-        url=args.url,
-    )
+    try:
+        result = import_lineups(
+            args.game_date,
+            output_path=args.output,
+            history_path=args.history_output,
+            url=args.url,
+        )
+    except LineupSourceUnavailableError as exc:
+        parser.exit(2, f"ERROR: {exc}\\n")
     statuses = result.get("status_counts", {})
     print(
         "NBA lineup source imported: "
