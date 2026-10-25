@@ -2,7 +2,7 @@ name: PropIt tests
 
 on:
   push:
-    branches: [main]
+    branches: [main, feature/nba-prop-model-hardening]
   pull_request:
     branches: [main]
 
