@@ -96,6 +96,49 @@ def test_questionable_report_requires_review_and_is_not_shortlisted(tmp_path):
     assert shortlist.empty
 
 
+def _write_report_coverage(path, teams_not_submitted):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame([{
+        "game_date": "2026-10-25",
+        "reported_at_utc": "2026-10-25T14:30:00Z",
+        "retrieved_at_utc": "2026-10-25T14:31:00Z",
+        "report_url": "https://official.nba.com/report.pdf",
+        "team_report_coverage_parsed": True,
+        "teams_not_yet_submitted_json": __import__("json").dumps(teams_not_submitted),
+    }]).to_csv(path, index=False)
+
+
+def test_unlisted_player_is_not_called_available_when_team_report_is_submitted(tmp_path):
+    data_dir = tmp_path / "data"
+    availability_path = data_dir / "player_availability.csv"
+    _write_report_coverage(data_dir / "injury_report_imports.csv", ["NYK"])
+
+    attached = attach_availability(
+        pd.DataFrame([_row()]), availability_path,
+        now_utc="2026-10-25T15:00:00Z", max_age_hours=2,
+    )
+    row = attached.iloc[0]
+    assert row["availability_status"] == "NOT_LISTED"
+    assert row["availability_gate"] == "CLEAR"
+    assert "not an explicit Available designation" in row["availability_reason"]
+    assert row["availability_source"] == "https://official.nba.com/report.pdf"
+
+
+def test_unlisted_player_on_team_marked_not_yet_submitted_stays_unverified(tmp_path):
+    data_dir = tmp_path / "data"
+    availability_path = data_dir / "player_availability.csv"
+    _write_report_coverage(data_dir / "injury_report_imports.csv", ["BOS"])
+
+    attached = attach_availability(
+        pd.DataFrame([_row()]), availability_path,
+        now_utc="2026-10-25T15:00:00Z", max_age_hours=2,
+    )
+    row = attached.iloc[0]
+    assert row["availability_status"] == "NOT_YET_SUBMITTED"
+    assert row["availability_gate"] == "UNVERIFIED"
+    assert "NOT YET SUBMITTED" in row["availability_reason"]
+
+
 def test_stale_report_is_not_treated_as_clear(tmp_path):
     path = tmp_path / "availability.csv"
     _write_snapshot(path, "Available", stamp="2026-10-24T01:00:00Z")
