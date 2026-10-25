@@ -105,7 +105,7 @@ input[type=date],select{border:1px solid var(--line);border-radius:9px;backgroun
       </div>
       <div class="panel" id="pending-confirmation-panel" style="margin-top:16px">
         <div class="panel-head">
-          <div><h2 class="panel-title">Pending confirmation</h2><p class="panel-subtitle" id="pending-confirmation-summary">Loading research-only candidates that show positive exploratory edge/EV but remain blocked by lineup or availability evidence.</p></div>
+          <div><h2 class="panel-title">Pending confirmation</h2><p class="panel-subtitle" id="pending-confirmation-summary">Loading evidence-blocked research leads. Positive signals rank first; watch-only candidates are labeled with the exact edge, EV, or probability limitation.</p></div>
           <span class="status-pill warn" id="pending-confirmation-badge">RESEARCH ONLY</span>
         </div>
         <div class="panel-body"><p class="help-text" id="pending-confirmation-note">These are leads to recheck, not qualified picks. The model will not promote expected lineups or unverified availability into confirmed status.</p></div>
@@ -446,12 +446,14 @@ input[type=date],select{border:1px solid var(--line);border-radius:9px;backgroun
     }).join(", "):"";
     $("pending-confirmation-badge").textContent=count?count+" PENDING":"NO MATCHES";
     $("pending-confirmation-badge").className="status-pill warn";
+    var positiveCount=Number((diagnostics||{}).returned_positive_signals||0);
+    var watchCount=Number((diagnostics||{}).returned_watch_only||0);
     $("pending-confirmation-summary").textContent=count
-      ?count+" positive research-signal row"+(count===1?"":"s")+" blocked by lineup/availability evidence. "+Number((diagnostics||{}).evidence_blocked_rows||0)+" rows have an evidence blocker; "+Number((diagnostics||{}).positive_research_signal_rows||0)+" met the preliminary signal screen."
-      :"No candidates passed the pending-confirmation screens. "+Number((diagnostics||{}).evidence_blocked_rows||0)+" rows have lineup/availability blockers"+(blockers?": "+blockers:"")+".";
+      ?count+" evidence-blocked research row"+(count===1?"":"s")+" · "+positiveCount+" positive-signal row"+(positiveCount===1?"":"s")+" · "+watchCount+" watch-only row"+(watchCount===1?"":"s")+". Positive signals rank first. "+Number((diagnostics||{}).evidence_blocked_rows||0)+" total rows are blocked by lineup/availability."
+      :(message||("No candidates passed the market-quality screens. "+Number((diagnostics||{}).evidence_blocked_rows||0)+" rows have lineup/availability blockers"+(blockers?": "+blockers:"")+".")) ;
     $("pending-confirmation-note").textContent=count
-      ?"Research only — candidates require verified availability and a fresh, source-confirmed starter/bench role, then a full rescore. Positive research edge/EV is not proof of value or a qualified bet."
-      :"These filters are intentionally conservative: positive research edge and EV, research probability ≥53%, fresh market/data, paired prices, same-book no-vig reference, and an evidence-only blocker. Explicitly unavailable players are excluded.";
+      ?"Research only — positive signals sort first; watch-only rows tell you whether edge, EV, or research probability fell short. All rows require verified availability and a fresh, source-confirmed starter/bench role, then a full rescore. None is a qualified bet."
+      :"The filter-stage counts above identify where rows were removed. Explicitly unavailable players, stale markets/data, missing price pairs, missing same-book no-vig references, insufficient minutes evidence, and missing market-movement history are not hidden or treated as confirmed.";
     $("pending-confirmation-table").innerHTML=count?rows.map(function(r,i){
       var quoteAge=num(r.market_age_hours);
       var quoteAgeText=quoteAge===null?"Unknown":quoteAge<1?Math.round(quoteAge*60)+"m":fixed(quoteAge,1)+"h";
@@ -461,8 +463,10 @@ input[type=date],select{border:1px solid var(--line);border-radius:9px;backgroun
       var lineupLabel=lineupStatus+" · "+lineupConfirmation+" · "+(lineupAge===null?"unverified":fixed(lineupAge,1)+"h");
       var lineupTip=String(r.lineup_reason||"Starter/bench snapshot not verified.")+" Source: "+String(r.lineup_source||"unknown")+" · Source status: "+String(r.lineup_source_status||lineupConfirmation)+" · Captured UTC: "+String(r.lineup_reported_at_utc||"unknown");
       var blocker=String(r.shortlist_status||"EVIDENCE UNVERIFIED");
-      var reason=String(r.shortlist_reason||r.availability_reason||r.lineup_reason||"Verified lineup/availability evidence required.");
-      return '<tr><td class="mono">'+escapeHtml(r.pending_rank||i+1)+'</td><td><span class="player-cell">'+escapeHtml(r.player_name)+'</span><div class="muted-cell" style="font-size:10px;margin-top:3px">ID '+escapeHtml(r.player_id)+'</div></td><td>'+teamCell(r)+'</td><td>'+opponentCell(r)+'</td><td class="mono">'+escapeHtml(gameDateLabel(r.match_date))+'</td><td>'+targetPill(r.target)+'</td><td class="mono">'+fixed(r.line,1)+'</td><td>'+sidePill(r.research_recommended_side)+'</td><td class="mono">'+pct(r.research_selected_probability)+'</td><td class="mono">'+pct(r.research_market_probability)+'</td><td class="mono">'+signed(r.research_selected_edge)+'</td><td class="mono">'+fixed(r.research_selected_ev,3)+'</td><td><span class="status-pill warn" title="'+escapeHtml(lineupTip)+'">'+escapeHtml(lineupLabel)+'</span></td><td>'+availabilityCell(r)+'</td><td class="mono">'+escapeHtml(quoteAgeText)+'</td><td><span class="status-pill warn">'+escapeHtml(blocker)+'</span><div class="muted-cell" style="font-size:10px;margin-top:3px;max-width:360px;white-space:normal">'+escapeHtml(reason)+'</div></td></tr>';
+      var pendingLabel=String(r.pending_label||"WATCH ONLY");
+      var reason=String(r.pending_note||"");
+      var strictReason=String(r.shortlist_reason||r.availability_reason||r.lineup_reason||"Verified lineup/availability evidence required.");
+      return '<tr><td class="mono">'+escapeHtml(r.pending_rank||i+1)+'</td><td><span class="player-cell">'+escapeHtml(r.player_name)+'</span><div class="muted-cell" style="font-size:10px;margin-top:3px">ID '+escapeHtml(r.player_id)+'</div></td><td>'+teamCell(r)+'</td><td>'+opponentCell(r)+'</td><td class="mono">'+escapeHtml(gameDateLabel(r.match_date))+'</td><td>'+targetPill(r.target)+'</td><td class="mono">'+fixed(r.line,1)+'</td><td>'+sidePill(r.research_recommended_side)+'</td><td class="mono">'+pct(r.research_selected_probability)+'</td><td class="mono">'+pct(r.research_market_probability)+'</td><td class="mono">'+signed(r.research_selected_edge)+'</td><td class="mono">'+fixed(r.research_selected_ev,3)+'</td><td><span class="status-pill warn" title="'+escapeHtml(lineupTip)+'">'+escapeHtml(lineupLabel)+'</span></td><td>'+availabilityCell(r)+'</td><td class="mono">'+escapeHtml(quoteAgeText)+'</td><td><span class="status-pill warn">'+escapeHtml(pendingLabel)+'</span><div class="muted-cell" style="font-size:10px;margin-top:3px;max-width:360px;white-space:normal">'+escapeHtml(blocker)+' · '+escapeHtml(strictReason)+' '+escapeHtml(reason)+'</div></td></tr>';
     }).join(""):emptyRow(16,"No pending-confirmation candidates",message||"No row currently meets the research signal, freshness, market-quality, and evidence-blocker rules.");
   }
   async function loadPendingConfirmation(){
