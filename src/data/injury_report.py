@@ -175,6 +175,51 @@ def parse_injury_table_rows(
     return frame
 
 
+def positioned_words_to_rows(words: list[dict[str, Any]], page_width: float) -> list[list[str]]:
+    """Reconstruct seven NBA report columns from PDF word coordinates.
+
+    pdfplumber's automatic table detector can return no tables for this report
+    because the source is laid out with positioned text rather than stable cell
+    borders. Known post-2024 NBA report column boundaries are scaled to the
+    document width and used only as a fallback; the original text is retained.
+    """
+    if page_width <= 0 or not words:
+        return []
+    scale = page_width / 842.0
+    boundaries = [108.82, 183.55, 255.11, 371.93, 543.48, 655.04]
+    boundaries = [value * scale for value in boundaries]
+    ordered = sorted(words, key=lambda word: (float(word.get("top", 0.0)), float(word.get("x0", 0.0))))
+
+    lines: list[dict[str, Any]] = []
+    for word in ordered:
+        try:
+            top = float(word.get("top", 0.0))
+            x0 = float(word.get("x0", 0.0))
+        except (TypeError, ValueError):
+            continue
+        if not _clean(word.get("text")):
+            continue
+        if not lines or abs(top - lines[-1]["top"]) > 2.5:
+            lines.append({"top": top, "tops": [top], "cells": [[] for _ in range(7)]})
+        else:
+            # Use the average baseline for a little tolerance in font/character
+            # placement without merging separate wrapped rows.
+            line = lines[-1]
+            line["tops"].append(top)
+            line["top"] = sum(line["tops"]) / len(line["tops"])
+        column = 0
+        while column < len(boundaries) and x0 >= boundaries[column]:
+            column += 1
+        lines[-1]["cells"][column].append(_clean(word.get("text")))
+
+    rows: list[list[str]] = []
+    for line in lines:
+        cells = [" ".join(parts).strip() for parts in line["cells"]]
+        if any(cells):
+            rows.append(cells)
+    return rows
+
+
 def fetch_official_injury_report(
     game_date: str | date,
     *,
@@ -208,11 +253,30 @@ def fetch_official_injury_report(
         ) from exc
 
     extracted_tables: list[list[list[Any]]] = []
+    positioned_rows: list[list[list[str]]] = []
     with pdfplumber.open(io.BytesIO(pdf_response.content)) as pdf:
         for page in pdf.pages:
-            for table in page.extract_tables() or []:
-                extracted_tables.append(table)
+            try:
+                extracted_tables.extend(page.extract_tables() or [])
+            except Exception:
+                # Keep going: some PDF page layouts are text-positioned and have
+                # no stable table grid, which is why the word-coordinate fallback
+                # below exists.
+                pass
+            try:
+                words = page.extract_words(
+                    x_tolerance=1.5, y_tolerance=2.0, keep_blank_chars=False,
+                )
+                rows = positioned_words_to_rows(words, float(page.width))
+                if rows:
+                    positioned_rows.append(rows)
+            except Exception:
+                # The original table parser below still gets its chance.
+                continue
+
     stamp_utc = report_time.astimezone(ZoneInfo("UTC")).isoformat().replace("+00:00", "Z")
+    # The table detector is preferred; if its output is blank or does not produce
+    # any player rows, reconstruct rows from known column x-coordinates.
     frame = parse_injury_table_rows(
         extracted_tables,
         report_date=report_time.date(),
@@ -220,10 +284,32 @@ def fetch_official_injury_report(
         reported_at_utc=stamp_utc,
         target_date=target,
     )
+    parse_method = "pdf_table"
     if frame.empty:
+        frame = parse_injury_table_rows(
+            positioned_rows,
+            report_date=report_time.date(),
+            report_url=report_url,
+            reported_at_utc=stamp_utc,
+            target_date=target,
+        )
+        parse_method = "positioned_words"
+    if frame.empty:
+        # More actionable diagnostics, without writing any partial/unverified data.
+        all_words = []
+        with pdfplumber.open(io.BytesIO(pdf_response.content)) as pdf:
+            for page in pdf.pages[:2]:
+                try:
+                    all_words.extend(page.extract_words())
+                except Exception:
+                    pass
+        preview = " ".join(_clean(word.get("text")) for word in all_words[:70])
         raise ValueError(
             "Downloaded official report but could not parse any player status rows for "
-            f"{target.isoformat()}. No current snapshot was written. Inspect the PDF/table layout."
+            f"{target.isoformat()}. No current snapshot was written. "
+            f"Pages={len(pdf.pages) if 'pdf' in locals() else 'unknown'}; "
+            f"table_count={len(extracted_tables)}; positioned_pages={len(positioned_rows)}; "
+            f"text_preview={preview[:500]!r}. This diagnostic will help fix any layout change."
         )
     meta = {
         "game_date": target.isoformat(),
@@ -234,5 +320,8 @@ def fetch_official_injury_report(
         "rows_parsed": int(len(frame)),
         "players": int(frame["player_name"].nunique()),
         "teams": int(frame["team_abbreviation"].replace("", pd.NA).nunique()),
+        "parse_method": parse_method,
+        "table_count": int(len(extracted_tables)),
+        "positioned_pages": int(len(positioned_rows)),
     }
     return frame, meta
