@@ -198,7 +198,7 @@ def test_research_slate_view_returns_ev_sorted_unverified_rows(tmp_path, monkeyp
     assert result["rows"][0]["player_name"] == "Higher EV"
     assert result["rows"][1]["player_name"] == "Lower EV"
     assert result["diagnostics"]["rows_with_research_estimates"] == 2
-    assert "do not satisfy strict shortlist gates" in result["diagnostics"]["notice"]
+    assert "never satisfy strict shortlist gates" in result["diagnostics"]["notice"]
 
 
 def test_empty_shortlist_returns_reason_counts_from_scored_markets(tmp_path, monkeypatch):
