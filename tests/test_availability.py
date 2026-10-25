@@ -105,6 +105,7 @@ def _write_report_coverage(path, teams_not_submitted):
         "retrieved_at_utc": "2026-10-25T14:31:00Z",
         "report_url": "https://official.nba.com/report.pdf",
         "team_report_coverage_parsed": True,
+        "team_submission_markers_resolved": True,
         "teams_not_yet_submitted_json": json.dumps(teams_not_submitted),
     }]).to_csv(path, index=False)
 
