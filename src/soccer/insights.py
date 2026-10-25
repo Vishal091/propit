@@ -77,6 +77,126 @@ def _integer(value: Any, default: int = 0) -> int:
     return int(number)
 
 
+def _best_pick_candidates(
+    forecasts: Iterable[Any],
+    *,
+    min_history_matches: int = 8,
+    min_probability: float = 0.52,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Apply the Best Picks gates once and return eligible rows plus an audit summary."""
+    if isinstance(min_history_matches, bool) or min_history_matches < 0:
+        raise ValueError("min_history_matches must be a non-negative integer")
+    if not math.isfinite(min_probability) or not 0.0 <= min_probability <= 1.0:
+        raise ValueError("min_probability must be between 0 and 1")
+
+    rejection_counts = {
+        "OUTSIDE_TOP_FIVE_LEAGUES": 0,
+        "MISSING_FIXTURE_IDENTITY": 0,
+        "FINISHED_OR_SCORED": 0,
+        "INSUFFICIENT_HISTORY": 0,
+        "MISSING_VALID_PROBABILITIES": 0,
+        "BELOW_MIN_PROBABILITY": 0,
+        "DUPLICATE_FIXTURE": 0,
+    }
+    candidates: list[dict[str, Any]] = []
+    seen: set[tuple[str, str, str, str]] = set()
+    input_rows = 0
+
+    for row in forecasts:
+        input_rows += 1
+        league = canonical_top_five_league(row)
+        if league is None:
+            rejection_counts["OUTSIDE_TOP_FIVE_LEAGUES"] += 1
+            continue
+
+        match_date = str(_get(row, "match_date", "") or "")[:10]
+        home = str(_get(row, "home_team", "") or "").strip()
+        away = str(_get(row, "away_team", "") or "").strip()
+        comp_id = str(_get(row, "competition_id", "") or "")
+        if not (match_date and home and away and comp_id):
+            rejection_counts["MISSING_FIXTURE_IDENTITY"] += 1
+            continue
+
+        state = str(_get(row, "match_state", "") or "").strip().casefold()
+        if state in _FINISHED:
+            rejection_counts["FINISHED_OR_SCORED"] += 1
+            continue
+        if _number(_get(row, "home_score")) is not None or _number(_get(row, "away_score")) is not None:
+            rejection_counts["FINISHED_OR_SCORED"] += 1
+            continue
+
+        history_n = _integer(_get(row, "history_matches", 0))
+        if history_n < min_history_matches:
+            rejection_counts["INSUFFICIENT_HISTORY"] += 1
+            continue
+
+        markets = []
+        for suffix, label in (
+            ("home_win", "Home win"), ("draw", "Draw"), ("away_win", "Away win"),
+            ("over", f"Over {_get(row, 'total_goals_line', 2.5)}"),
+            ("under", f"Under {_get(row, 'total_goals_line', 2.5)}"),
+        ):
+            probability = _number(_get(row, f"poisson_{suffix}"))
+            if probability is None:
+                # Backwards compatibility with fixtures that store unprefixed probabilities.
+                probability = _number(_get(row, suffix))
+            if probability is not None and 0.0 <= probability <= 1.0:
+                markets.append((probability, label, suffix))
+        if not markets:
+            rejection_counts["MISSING_VALID_PROBABILITIES"] += 1
+            continue
+
+        probability, market, market_key = max(markets, key=lambda item: (item[0], item[2]))
+        if probability < min_probability:
+            rejection_counts["BELOW_MIN_PROBABILITY"] += 1
+            continue
+
+        # Only mark a fixture seen after this row passes every eligibility gate. An
+        # ineligible duplicate must not suppress a later, usable forecast for the fixture.
+        key = (comp_id, match_date, home.casefold(), away.casefold())
+        if key in seen:
+            rejection_counts["DUPLICATE_FIXTURE"] += 1
+            continue
+        seen.add(key)
+        candidates.append({
+            "row": row,
+            "league": league,
+            "match_date": match_date,
+            "home_team": home,
+            "away_team": away,
+            "competition_id": comp_id,
+            "history_matches": history_n,
+            "market_probability": probability,
+            "market": market,
+            "market_key": market_key,
+        })
+
+    diagnostics = {
+        "input_rows": input_rows,
+        "top_five_rows": input_rows - rejection_counts["OUTSIDE_TOP_FIVE_LEAGUES"],
+        "qualified_fixtures": len(candidates),
+        "min_history_matches": min_history_matches,
+        "min_probability": min_probability,
+        "rejection_counts": rejection_counts,
+    }
+    return candidates, diagnostics
+
+
+def diagnose_best_picks(
+    forecasts: Iterable[Any],
+    *,
+    min_history_matches: int = 8,
+    min_probability: float = 0.52,
+) -> dict[str, Any]:
+    """Explain why forecast rows do or do not qualify, without relaxing any filter."""
+    _, diagnostics = _best_pick_candidates(
+        forecasts,
+        min_history_matches=min_history_matches,
+        min_probability=min_probability,
+    )
+    return diagnostics
+
+
 def build_best_picks(
     forecasts: Iterable[Any],
     *,
@@ -90,53 +210,26 @@ def build_best_picks(
     experimental and not fitted. The confidence rank score discounts forecasts with thin
     competition history. No market odds are assumed, so no value/EV claim is produced.
     """
-    if isinstance(min_history_matches, bool) or min_history_matches < 0:
-        raise ValueError("min_history_matches must be a non-negative integer")
-    if not math.isfinite(min_probability) or not 0.0 <= min_probability <= 1.0:
-        raise ValueError("min_probability must be between 0 and 1")
     if isinstance(limit, bool) or limit < 1 or limit > 500:
         raise ValueError("limit must be between 1 and 500")
 
+    candidates, _diagnostics = _best_pick_candidates(
+        forecasts,
+        min_history_matches=min_history_matches,
+        min_probability=min_probability,
+    )
     ranked: list[dict[str, Any]] = []
-    seen: set[tuple[str, str, str, str]] = set()
-    for row in forecasts:
-        league = canonical_top_five_league(row)
-        if league is None:
-            continue
-        match_date = str(_get(row, "match_date", "") or "")[:10]
-        home = str(_get(row, "home_team", "") or "").strip()
-        away = str(_get(row, "away_team", "") or "").strip()
-        comp_id = str(_get(row, "competition_id", "") or "")
-        if not (match_date and home and away and comp_id):
-            continue
-        state = str(_get(row, "match_state", "") or "").strip().casefold()
-        if state in _FINISHED:
-            continue
-        if _number(_get(row, "home_score")) is not None or _number(_get(row, "away_score")) is not None:
-            continue
-        key = (comp_id, match_date, home.casefold(), away.casefold())
-        if key in seen:
-            continue
-        seen.add(key)
-
-        history_n = _integer(_get(row, "history_matches", 0))
-        if history_n < min_history_matches:
-            continue
-        markets = []
-        for suffix, label in (("home_win", "Home win"), ("draw", "Draw"), ("away_win", "Away win"),
-                              ("over", f"Over {_get(row, 'total_goals_line', 2.5)}"),
-                              ("under", f"Under {_get(row, 'total_goals_line', 2.5)}")):
-            probability = _number(_get(row, f"poisson_{suffix}"))
-            if probability is None:
-                # Backwards compatibility with fixtures that store unprefixed probabilities.
-                probability = _number(_get(row, suffix))
-            if probability is not None and 0.0 <= probability <= 1.0:
-                markets.append((probability, label, suffix))
-        if not markets:
-            continue
-        probability, market, market_key = max(markets, key=lambda item: (item[0], item[2]))
-        if probability < min_probability:
-            continue
+    for candidate in candidates:
+        row = candidate["row"]
+        league = candidate["league"]
+        match_date = candidate["match_date"]
+        home = candidate["home_team"]
+        away = candidate["away_team"]
+        comp_id = candidate["competition_id"]
+        history_n = candidate["history_matches"]
+        probability = candidate["market_probability"]
+        market = candidate["market"]
+        market_key = candidate["market_key"]
 
         # Score combines probability and history support without pretending to be EV.
         support = min(1.0, history_n / 20.0)
@@ -175,7 +268,6 @@ def build_best_picks(
     for index, pick in enumerate(ranked[:limit], start=1):
         pick["rank"] = index
     return ranked[:limit]
-
 
 def build_calibration_report(
     backtest_rows: Iterable[Any],
