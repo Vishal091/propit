@@ -563,9 +563,10 @@ def api_pending_confirmation(limit: int = Query(default=50, ge=1, le=200)) -> di
         watch = int(diagnostics.get("returned_watch_only", 0))
         message = (
             f"Returned {len(rows)} research-only leads: {positive} positive research signal(s), "
-            f"{watch} watch-only row(s). Positive signals sort first; watch-only rows explicitly "
-            "show which edge/EV/probability check they missed. All remain blocked from the qualified "
-            "shortlist until current lineup/availability evidence is verified and the full slate is rescored."
+            f"{watch} watch-only row(s). These are not qualified picks. Positive signals sort first; "
+            "watch-only rows explicitly show which edge/EV/probability check they missed. All remain "
+            "blocked from the qualified shortlist until current lineup/availability evidence is verified "
+            "and the full slate is rescored."
         )
     return {
         "count": int(len(rows)),
