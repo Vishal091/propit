@@ -56,6 +56,21 @@ def test_table_parser_carries_team_and_ignores_not_yet_submitted():
     assert parsed.iloc[0]["matchup"] == "BOS@NYK"
 
 
+def test_parser_rejects_non_player_metadata_and_unknown_status_rows():
+    parsed = parse_injury_table_rows(
+        [[
+            ["Date", "Time", "Game", "Team", "Player", "Status", "Injury/Illness"],
+            ["", "", "", "", "10/25/26 06:45", "UNKNOWN", ""],
+            ["", "", "", "", "Example Player", "UNKNOWN", "Report metadata"],
+        ]],
+        report_date="2026-10-25",
+        target_date="2026-10-25",
+        report_url="https://example.test/official.pdf",
+        reported_at_utc="2026-10-25T10:45:00Z",
+    )
+    assert parsed.empty
+
+
 def test_parser_does_not_backfill_absent_players_as_available():
     parsed = parse_injury_table_rows(
         [[["Date", "Time", "Game", "Team", "Player", "Status", "Injury/Illness"],
