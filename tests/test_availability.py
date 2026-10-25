@@ -97,15 +97,21 @@ def test_questionable_report_requires_review_and_is_not_shortlisted(tmp_path):
     assert shortlist.empty
 
 
-def _write_report_coverage(path, teams_not_submitted):
+def _write_report_coverage(
+    path,
+    teams_not_submitted,
+    *,
+    markers_resolved=True,
+    reported_at="2026-10-25T14:30:00Z",
+):
     path.parent.mkdir(parents=True, exist_ok=True)
     pd.DataFrame([{
         "game_date": "2026-10-25",
-        "reported_at_utc": "2026-10-25T14:30:00Z",
+        "reported_at_utc": reported_at,
         "retrieved_at_utc": "2026-10-25T14:31:00Z",
         "report_url": "https://official.nba.com/report.pdf",
         "team_report_coverage_parsed": True,
-        "team_submission_markers_resolved": True,
+        "team_submission_markers_resolved": markers_resolved,
         "teams_not_yet_submitted_json": json.dumps(teams_not_submitted),
     }]).to_csv(path, index=False)
 
@@ -139,6 +145,38 @@ def test_unlisted_player_on_team_marked_not_yet_submitted_stays_unverified(tmp_p
     assert row["availability_status"] == "NOT_YET_SUBMITTED"
     assert row["availability_gate"] == "UNVERIFIED"
     assert "NOT YET SUBMITTED" in row["availability_reason"]
+
+
+def test_unlisted_player_stays_unverified_if_team_markers_cannot_be_parsed(tmp_path):
+    data_dir = tmp_path / "data"
+    availability_path = data_dir / "player_availability.csv"
+    _write_report_coverage(
+        data_dir / "injury_report_imports.csv", ["NYK"], markers_resolved=False,
+    )
+
+    attached = attach_availability(
+        pd.DataFrame([_row()]), availability_path,
+        now_utc="2026-10-25T15:00:00Z", max_age_hours=2,
+    )
+    assert attached.iloc[0]["availability_status"] == "UNKNOWN"
+    assert attached.iloc[0]["availability_gate"] == "UNVERIFIED"
+
+
+def test_unlisted_player_stays_unverified_if_team_report_coverage_is_stale(tmp_path):
+    data_dir = tmp_path / "data"
+    availability_path = data_dir / "player_availability.csv"
+    _write_report_coverage(
+        data_dir / "injury_report_imports.csv",
+        ["NYK"],
+        reported_at="2026-10-25T10:00:00Z",
+    )
+
+    attached = attach_availability(
+        pd.DataFrame([_row()]), availability_path,
+        now_utc="2026-10-25T15:00:00Z", max_age_hours=2,
+    )
+    assert attached.iloc[0]["availability_status"] == "UNKNOWN"
+    assert attached.iloc[0]["availability_gate"] == "UNVERIFIED"
 
 
 def test_shortlist_explains_unlisted_status_is_not_explicitly_available(tmp_path):
