@@ -248,6 +248,166 @@ def _shortlist_diagnostics(frame: pd.DataFrame, *, limit: int = 5) -> dict[str, 
     return {"scored_rows": int(len(frame)), "status_counts": grouped}
 
 
+_PENDING_CONFIRMATION_STATUSES = {
+    "INSUFFICIENT_LINEUP_DATA",
+    "LINEUP_UNVERIFIED",
+    "AVAILABILITY_UNVERIFIED",
+    "AVAILABILITY_STALE",
+    "AVAILABILITY_REVIEW",
+    "INSUFFICIENT_AVAILABILITY_DATA",
+}
+
+
+def _pending_confirmation_candidates(
+    frame: pd.DataFrame,
+    *,
+    limit: int = 50,
+    min_probability: float = 0.53,
+    max_market_age_hours: float = 2.0,
+    max_data_age_days: int = 14,
+) -> tuple[pd.DataFrame, dict[str, Any]]:
+    """Return research-only signals blocked specifically by lineup/availability evidence.
+
+    This view deliberately does not relax the qualified shortlist. Candidates must
+    still have a positive exploratory edge and EV, adequate research probability,
+    a fresh market/data row, paired prices, and a usable same-book no-vig reference.
+    Explicitly unavailable players and rows blocked for unrelated reasons are omitted.
+    """
+    if isinstance(limit, bool) or limit < 1 or limit > 200:
+        raise ValueError("limit must be between 1 and 200")
+    if not 0.0 <= min_probability <= 1.0:
+        raise ValueError("min_probability must be between 0 and 1")
+
+    if frame.empty:
+        return frame.copy(), {
+            "scored_rows": 0, "evidence_blocked_rows": 0,
+            "positive_research_signal_rows": 0, "pending_rows": 0,
+            "blocker_counts": {},
+        }
+
+    statuses = frame.get(
+        "shortlist_status", pd.Series("", index=frame.index)
+    ).fillna("").astype(str).str.strip().str.upper()
+    evidence_mask = statuses.isin(_PENDING_CONFIRMATION_STATUSES)
+    evidence = frame.loc[evidence_mask].copy()
+    blocker_counts = {
+        str(status): int(count)
+        for status, count in statuses.loc[evidence_mask].value_counts().items()
+    }
+
+    def numeric(rows: pd.DataFrame, column: str) -> pd.Series:
+        if column not in rows:
+            return pd.Series(float("nan"), index=rows.index, dtype="float64")
+        return pd.to_numeric(rows[column], errors="coerce")
+
+    diag: dict[str, Any] = {
+        "scored_rows": int(len(frame)),
+        "evidence_blocked_rows": int(len(evidence)),
+        "positive_research_signal_rows": 0,
+        "pending_rows": 0,
+        "blocker_counts": blocker_counts,
+        "min_research_probability": min_probability,
+        "max_market_age_hours": max_market_age_hours,
+        "max_data_age_days": max_data_age_days,
+    }
+    if evidence.empty:
+        return evidence, diag
+
+    research_status = evidence.get(
+        "research_status", pd.Series("", index=evidence.index)
+    ).fillna("").astype(str).str.upper()
+    side = evidence.get(
+        "research_recommended_side", pd.Series("", index=evidence.index)
+    ).fillna("").astype(str).str.upper()
+    edge = numeric(evidence, "research_selected_edge")
+    ev = numeric(evidence, "research_selected_ev")
+    probability = numeric(evidence, "research_selected_probability")
+    market_age = numeric(evidence, "market_age_hours")
+    data_age = numeric(evidence, "data_age_days")
+    line = numeric(evidence, "line")
+    over_odds = numeric(evidence, "odds_over_american")
+    under_odds = numeric(evidence, "odds_under_american")
+    market_over = numeric(evidence, "market_no_vig_p_over")
+    market_under = numeric(evidence, "market_no_vig_p_under")
+
+    signal_mask = (
+        research_status.eq("RESEARCH_ESTIMATE_AVAILABLE")
+        & side.isin({"OVER", "UNDER"})
+        & edge.gt(0)
+        & ev.gt(0)
+        & probability.ge(min_probability)
+    )
+    diag["positive_research_signal_rows"] = int(signal_mask.sum())
+
+    market_method = evidence.get(
+        "market_no_vig_method", pd.Series("", index=evidence.index)
+    ).fillna("").astype(str).str.strip().str.casefold()
+    bookmaker = evidence.get(
+        "bookmaker", pd.Series("", index=evidence.index)
+    ).fillna("").astype(str).str.strip().str.casefold()
+    placeholder = bookmaker.eq("") | bookmaker.apply(
+        lambda value: any(marker in value for marker in ("test", "example", "sample", "demo", "not_live", "not live"))
+    )
+    line_source = evidence.get(
+        "line_source", pd.Series("", index=evidence.index)
+    ).fillna("").astype(str).str.strip().str.casefold()
+    snapshot_stamp = evidence.get(
+        "market_snapshot_at_utc", pd.Series("", index=evidence.index)
+    ).fillna("").astype(str).str.strip()
+    is_public = line_source.eq("public_web_import")
+
+    prior_count = numeric(evidence, "market_prior_snapshot_count")
+    movement_open = numeric(evidence, "line_move_from_open")
+    movement_previous = numeric(evidence, "line_move_from_previous")
+    movement = movement_open.where(movement_open.notna(), movement_previous)
+    movement_explanation = evidence.get(
+        "movement_explanation", pd.Series("", index=evidence.index)
+    ).fillna("").astype(str).str.strip()
+    edge_explanation = evidence.get(
+        "edge_explanation", pd.Series("", index=evidence.index)
+    ).fillna("").astype(str).str.strip()
+
+    movement_present = prior_count.ge(1) | movement_explanation.str.len().ge(15)
+    movement_against = (
+        (side.eq("OVER") & movement.gt(0.5))
+        | (side.eq("UNDER") & movement.lt(-0.5))
+    )
+    movement_documented = movement_explanation.str.len().ge(15)
+    edge_documented = edge_explanation.str.lower().apply(
+        lambda value: len(value) >= 20 and any(
+            term in value for term in ("injury", "role", "minutes", "matchup", "starter", "return", "out")
+        )
+    )
+
+    eligible = (
+        signal_mask
+        & market_age.ge(0) & market_age.le(max_market_age_hours)
+        & data_age.ge(0) & data_age.le(max_data_age_days)
+        & line.notna() & line.ge(0)
+        & over_odds.notna() & over_odds.ne(0)
+        & under_odds.notna() & under_odds.ne(0)
+        & market_over.ge(0) & market_over.le(1)
+        & market_under.ge(0) & market_under.le(1)
+        & market_method.ne("") & ~market_method.eq("cross_book_pair_unavailable")
+        & ~placeholder
+        & (~is_public | snapshot_stamp.ne(""))
+        & (~is_public | movement_present)
+        & (~movement_against | movement_documented)
+        & (~edge.abs().gt(0.10) | edge_documented)
+    )
+    result = evidence.loc[eligible].copy()
+    result["_pending_ev"] = ev.loc[eligible]
+    result["_pending_edge"] = edge.loc[eligible]
+    result["_pending_probability"] = probability.loc[eligible]
+    result = result.sort_values(
+        ["_pending_ev", "_pending_edge", "_pending_probability"],
+        ascending=[False, False, False], kind="stable",
+    ).head(limit).drop(columns=["_pending_ev", "_pending_edge", "_pending_probability"])
+    result.insert(0, "pending_rank", range(1, len(result) + 1))
+    diag["pending_rows"] = int(len(result))
+    return result, diag
+
+
 @app.get("/api/slate")
 def api_slate(view: str = Query(default="shortlist", pattern="^(shortlist|all|research)$")) -> dict[str, Any]:
     path = SHORTLIST if view == "shortlist" else LATEST
@@ -299,6 +459,36 @@ def api_slate(view: str = Query(default="shortlist", pattern="^(shortlist|all|re
     if diagnostics:
         result["diagnostics"] = diagnostics
     return result
+
+
+@app.get("/api/pending-confirmation")
+def api_pending_confirmation(limit: int = Query(default=50, ge=1, le=200)) -> dict[str, Any]:
+    """Return positive research signals held out of the shortlist by evidence gates."""
+    latest = _read_csv(LATEST)
+    rows, diagnostics = _pending_confirmation_candidates(latest, limit=limit)
+    if rows.empty:
+        message = (
+            "No candidates currently meet the positive research-signal and fresh-market screens "
+            "while being blocked specifically by lineup or availability evidence. This view is "
+            "research-only; it never changes qualified shortlist eligibility."
+        )
+    else:
+        message = (
+            "These are research-only leads with positive exploratory edge and EV that are blocked "
+            "by lineup or availability evidence. Confirm the player and role with a current trusted "
+            "source, then refresh and rescore. Rows here are not qualified picks."
+        )
+    return {
+        "count": int(len(rows)),
+        "rows": _records(rows),
+        "diagnostics": diagnostics,
+        "message": message,
+        "warning": (
+            "Pending confirmation is not an approved bet list. Research probabilities use the exploratory "
+            "model/market blend; strict edge, availability, confirmed-role, minutes and exposure screens "
+            "must be rerun after evidence is updated."
+        ),
+    }
 
 
 @app.get("/api/history")
