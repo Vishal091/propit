@@ -14,6 +14,7 @@ AUDIT_RELATIVE_PATH = Path("data/operations_audit.jsonl")
 MAX_MARKET_AGE_HOURS = 2.0
 MAX_AVAILABILITY_AGE_HOURS = 2.0
 MAX_PREDICTION_FILE_AGE_HOURS = 24.0
+MAX_LINEUP_AGE_HOURS = 2.0
 
 
 def _utc_now(value: str | datetime | pd.Timestamp | None = None) -> pd.Timestamp:
@@ -327,7 +328,7 @@ def build_health_report(root: str | Path = DEFAULT_ROOT, now: str | datetime | p
         ).fillna("PROJECTED").astype(str).str.upper()
         auto_stamps = pd.to_datetime(auto_lineups.get("reported_at_utc", pd.Series("", index=auto_lineups.index)), utc=True, errors="coerce")
         auto_ages = (current - auto_stamps).dt.total_seconds() / 3600.0
-        auto_fresh = auto_stamps.notna() & auto_ages.ge(-5 / 60) & auto_ages.le(MAX_AVAILABILITY_AGE_HOURS)
+        auto_fresh = auto_stamps.notna() & auto_ages.ge(-5 / 60) & auto_ages.le(MAX_LINEUP_AGE_HOURS)
         auto_role_valid = auto_status.isin(["STARTER", "BENCH"])
         auto_fresh_confirmed = auto_fresh & auto_role_valid & auto_confirmation.eq("CONFIRMED")
         auto_fresh_projected_mask = auto_fresh & auto_role_valid & ~auto_confirmation.eq("CONFIRMED")
@@ -357,7 +358,7 @@ def build_health_report(root: str | Path = DEFAULT_ROOT, now: str | datetime | p
         fresh_status_count = 0
         if "reported_at_utc" in lineups.columns:
             stamps = pd.to_datetime(lineups["reported_at_utc"], utc=True, errors="coerce")
-            fresh = stamps.notna() & ((current - stamps).dt.total_seconds() >= -(5 / 60) * 3600) & ((current - stamps).dt.total_seconds() <= MAX_AVAILABILITY_AGE_HOURS * 3600)
+            fresh = stamps.notna() & ((current - stamps).dt.total_seconds() >= -(5 / 60) * 3600) & ((current - stamps).dt.total_seconds() <= MAX_LINEUP_AGE_HOURS * 3600)
             fresh_status_count = int((fresh & valid_status).sum())
         if lineups.empty:
             status, detail = "WARN", "Operator-verified lineup snapshot contains headers only."
@@ -365,8 +366,8 @@ def build_health_report(root: str | Path = DEFAULT_ROOT, now: str | datetime | p
             status, detail = "WARN", "No valid lineup report timestamp; starter/bench data is not current."
         elif lineup_age < -5 / 60:
             status, detail = "WARN", "Lineup timestamp is in the future; check the source time and system clock."
-        elif lineup_age > MAX_AVAILABILITY_AGE_HOURS:
-            status, detail = "WARN", f"Newest verified lineup snapshot is {lineup_age:.1f} hours old; limit is {MAX_AVAILABILITY_AGE_HOURS:.0f} hours."
+        elif lineup_age > MAX_LINEUP_AGE_HOURS:
+            status, detail = "WARN", f"Newest verified lineup snapshot is {lineup_age:.1f} hours old; limit is {MAX_LINEUP_AGE_HOURS:.0f} hours."
         else:
             status = "OK" if fresh_status_count == len(lineups) and len(lineups) > 0 else "WARN"
             detail = f"{fresh_status_count}/{len(lineups)} rows have a fresh timestamp and explicit confirmed STARTER/BENCH status."
