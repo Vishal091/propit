@@ -868,8 +868,15 @@ def _decorate_and_rank_candidates(
         elif is_placeholder:
             status, reason = "PLACEHOLDER_INPUT", "Replace the test/example source label with the real source or sportsbook where you checked the line and both prices."
             side = prob = market_prob = edge = ev = None
-        elif str(row.get("probability_gate_status") or "").upper() == "INSUFFICIENT_DATA":
-            status, reason = "INSUFFICIENT_DATA", "A compatible current two-sided no-vig market reference is missing; no calibrated probability is released."
+        elif str(row.get("probability_gate_status") or "").upper() in {"INSUFFICIENT_DATA", "INSUFFICIENT_AVAILABILITY_DATA", "INSUFFICIENT_MINUTES_DATA"}:
+            gate_status = str(row.get("probability_gate_status") or "INSUFFICIENT_DATA").upper()
+            if gate_status == "INSUFFICIENT_AVAILABILITY_DATA":
+                reason_text = "No fresh Available/Probable status matched this player and scheduled game; probability withheld."
+            elif gate_status == "INSUFFICIENT_MINUTES_DATA":
+                reason_text = "Fewer than three usable historical minutes rows or a missing minutes distribution; probability withheld."
+            else:
+                reason_text = "A compatible current two-sided no-vig market reference is missing; no calibrated probability is released."
+            status, reason = gate_status, reason_text
             side = prob = market_prob = edge = ev = None
         elif str(row.get("probability_gate_status") or "").upper() in {"RAW_MODEL_CAP_RED_FLAG", "CALIBRATED_CAP_RED_FLAG"}:
             status, reason = "PROBABILITY_CAP_REVIEW", "Model probability crosses the uncertainty-adjusted hard cap; investigate missing minutes, role, injury, or market information before betting."
@@ -1003,8 +1010,10 @@ def main() -> None:
     parser.add_argument("--min-probability", type=float, default=0.53)
     parser.add_argument("--max-data-age-days", type=int, default=14)
     parser.add_argument("--max-market-age-hours", type=float, default=2.0, help="reject market snapshots older than this many hours")
-    parser.add_argument("--availability-file", type=Path, default=DEFAULT_AVAILABILITY_PATH, help="CSV of verified player statuses by player ID and scheduled match date")
+    parser.add_argument("--availability-file", type=Path, default=DEFAULT_AVAILABILITY_PATH, help="CSV of official/timestamped player statuses by ID or normalized name and scheduled date")
     parser.add_argument("--max-availability-age-hours", type=float, default=DEFAULT_MAX_AGE_HOURS, help="treat older player status reports as stale")
+    parser.add_argument("--lineups-file", type=Path, default=DEFAULT_LINEUP_PATH, help="CSV of timestamped STARTER/BENCH snapshots")
+    parser.add_argument("--max-lineup-age-hours", type=float, default=DEFAULT_LINEUP_MAX_AGE_HOURS, help="treat older starter/bench snapshots as unverified")
     parser.add_argument("--require-verified-availability", dest="require_verified_availability", action="store_true", default=True, help="require a fresh Available/Probable status (default)")
     parser.add_argument("--allow-unverified-availability", dest="require_verified_availability", action="store_false", help="relax availability gate for research only; never treat as confirmed")
     args = parser.parse_args()
@@ -1012,8 +1021,8 @@ def main() -> None:
         parser.error("--top must be at least 1")
     if not 0 <= args.min_edge <= 1 or not 0 <= args.min_probability <= 1:
         parser.error("--min-edge and --min-probability must be between 0 and 1")
-    if args.min_ev < 0 or args.max_data_age_days < 0 or args.max_market_age_hours < 0 or args.max_availability_age_hours < 0:
-        parser.error("--min-ev, --max-data-age-days, --max-market-age-hours, and --max-availability-age-hours must be non-negative")
+    if args.min_ev < 0 or args.max_data_age_days < 0 or args.max_market_age_hours < 0 or args.max_availability_age_hours < 0 or args.max_lineup_age_hours < 0:
+        parser.error("--min-ev and all age limits must be non-negative")
 
     bundles: dict[str, TrainedModel] = {}
     for target in TARGETS:
