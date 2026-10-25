@@ -238,8 +238,6 @@ def extract_team_submission_metadata(
     submitted report from a team whose report is explicitly pending.
     """
     not_submitted: set[str] = set()
-    marker_count = 0
-    valid_statuses = {"AVAILABLE", "PROBABLE", "QUESTIONABLE", "DOUBTFUL", "OUT"}
     datasets = [*tables, *positioned_pages]
     for table in datasets:
         current_team = ""
@@ -251,21 +249,12 @@ def extract_team_submission_metadata(
             if team_cell and team_cell.upper() in _TEAM_ABBREVIATIONS:
                 current_team = _TEAM_ABBREVIATIONS[team_cell.upper()]
             joined = " ".join(values).upper()
-            if "NOT YET SUBMITTED" in joined:
-                marker_count += 1
-                if current_team:
-                    not_submitted.add(current_team)
-                continue
-            # Touch the expected status/player fields to make clear that this
-            # parser is operating on the seven-column NBA report layout.
-            player_name = _row_value(raw_row, 4)
-            status = _row_value(raw_row, 5).upper()
-            if player_name and status in valid_statuses and current_team:
-                continue
+            if "NOT YET SUBMITTED" in joined and current_team:
+                not_submitted.add(current_team)
 
     return {
         "teams_not_yet_submitted": sorted(not_submitted),
-        "team_submission_markers_count": marker_count,
+        "team_submission_markers_count": len(not_submitted),
         "team_report_coverage_parsed": bool(tables or positioned_pages),
     }
 
