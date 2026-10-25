@@ -24,7 +24,10 @@ def _read_csv(path: Path) -> pd.DataFrame:
     if not path.exists() or path.stat().st_size == 0:
         return pd.DataFrame()
     try:
-        return pd.read_csv(path, dtype={"player_id": "string"}).fillna("")
+        frame = pd.read_csv(path, dtype={"player_id": "string"})
+        for column in frame.select_dtypes(include=["object", "string"]).columns:
+            frame[column] = frame[column].fillna("")
+        return frame
     except (OSError, pd.errors.EmptyDataError, pd.errors.ParserError, UnicodeDecodeError):
         return pd.DataFrame()
 
