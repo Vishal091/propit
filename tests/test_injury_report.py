@@ -7,6 +7,7 @@ import pytest
 
 from src.data.injury_report import (
     parse_injury_table_rows,
+    positioned_words_to_rows,
     report_timestamp_from_url,
     select_report_url,
 )
@@ -63,3 +64,39 @@ def test_parser_does_not_backfill_absent_players_as_available():
         report_url="x", reported_at_utc="2026-10-25T05:00:00Z",
     )
     assert parsed.empty
+
+
+
+def test_positioned_word_fallback_reconstructs_official_seven_columns():
+    words = []
+    def add(top, x0, text):
+        words.append({"top": top, "x0": x0, "text": text})
+
+    # Use the NBA report's post-2024 column layout scaled to an 842-point page.
+    for top, values in [
+        (100, [
+            (20, "10/25/2026"), (120, "07:00 (ET)"), (195, "BOS@NYK"),
+            (275, "Boston Celtics"), (390, "Tatum, Jayson"),
+            (565, "Questionable"), (675, "Injury/Illness - Wrist"),
+        ]),
+        (120, [(390, "Brown, Jaylen"), (565, "Available"), (675, "G League - Two-Way")]),
+        (140, [(275, "New York Knicks"), (390, "Brunson, Jalen"), (565, "Out"), (675, "Injury/Illness - Ankle")]),
+    ]:
+        for x0, text in values:
+            add(top, x0, text)
+
+    rows = positioned_words_to_rows(words, 842.0)
+    assert len(rows) == 3
+    parsed = parse_injury_table_rows(
+        [rows],
+        report_date="2026-10-25",
+        target_date="2026-10-25",
+        report_url="https://example.test/official.pdf",
+        reported_at_utc="2026-10-25T05:00:00Z",
+    )
+    assert len(parsed) == 3
+    assert parsed.iloc[0]["player_name"] == "Tatum, Jayson"
+    assert parsed.iloc[0]["team_abbreviation"] == "BOS"
+    assert parsed.iloc[1]["team_abbreviation"] == "BOS"
+    assert parsed.iloc[2]["team_abbreviation"] == "NYK"
+    assert parsed.iloc[2]["status"] == "Out"
