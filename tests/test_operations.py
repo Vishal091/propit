@@ -143,3 +143,34 @@ def test_future_market_timestamp_is_not_reported_as_fresh(tmp_path):
     assert market["status"] == "WARN"
     assert "future" in market["detail"].lower()
     assert market["age_hours"] == -0.5
+
+
+def test_health_report_includes_minutes_lineup_and_official_report_readiness(tmp_path):
+    data = tmp_path / "data"
+    predictions = tmp_path / "predictions"
+    artifacts = tmp_path / "artifacts"
+    data.mkdir()
+    predictions.mkdir()
+    artifacts.mkdir()
+    for target in ("PTS", "REB", "AST"):
+        (artifacts / f"model_{target}.joblib").write_bytes(b"placeholder")
+    (predictions / "latest.csv").write_text(
+        "player_id,player_name,target,line,minutes_projection_mean,minutes_projection_std,minutes_sample_size\n"
+        "1,Player One,PTS,20.5,30,3.5,18\n",
+        encoding="utf-8",
+    )
+    (data / "player_lineups.csv").write_text(
+        "player_id,player_name,team_abbreviation,match_date,starting_status,reported_at_utc,source\n"
+        "1,Player One,BOS,2026-10-25,STARTER,2026-10-25T11:30:00Z,official source\n",
+        encoding="utf-8",
+    )
+    (data / "injury_report_imports.csv").write_text(
+        "game_date,reported_at_utc,retrieved_at_utc,rows_parsed\n"
+        "2026-10-25,2026-10-25T11:30:00Z,2026-10-25T11:35:00Z,10\n",
+        encoding="utf-8",
+    )
+    report = build_health_report(tmp_path, now="2026-10-25T12:00:00Z")
+    by_name = {check["name"]: check for check in report["checks"]}
+    assert by_name["Minutes projections"]["status"] == "OK"
+    assert by_name["Starter/bench snapshots"]["status"] == "OK"
+    assert by_name["Official injury report import"]["status"] == "OK"
