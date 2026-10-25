@@ -149,7 +149,35 @@ def attach_lineups(
                 or (name and candidate.get("_name") == name)
             )
         ]
-        candidate = matching[-1] if matching else None
+        candidate = None
+        if matching:
+            fresh_confirmed = []
+            for entry in matching:
+                stamp_candidate = entry.get("_reported")
+                if (
+                    entry.get("_confirmation") == "CONFIRMED"
+                    and entry.get("_role") in {"STARTER", "BENCH"}
+                    and pd.notna(stamp_candidate)
+                ):
+                    entry_age = (observed - stamp_candidate).total_seconds() / 3600.0
+                    if -5 / 60 <= entry_age <= max_age_hours:
+                        fresh_confirmed.append(entry)
+            if fresh_confirmed:
+                candidate = max(
+                    fresh_confirmed,
+                    key=lambda entry: entry["_reported"].timestamp(),
+                )
+            else:
+                # If no confirmed row is fresh, surface the newest observation
+                # (often a projection) but keep the gate closed below.
+                candidate = max(
+                    enumerate(matching),
+                    key=lambda pair: (
+                        pair[1]["_reported"].timestamp()
+                        if pd.notna(pair[1].get("_reported")) else float("-inf"),
+                        pair[0],
+                    ),
+                )[1]
         if candidate is None:
             statuses.append("UNKNOWN")
             gates.append("UNVERIFIED")
