@@ -45,7 +45,9 @@ def _read_lineup_source(path: Path, *, default_confirmation: str) -> list[dict[s
     if not path.exists() or path.stat().st_size == 0:
         return []
     try:
-        frame = pd.read_csv(path, dtype={"player_id": "string"}).fillna("")
+        frame = pd.read_csv(path, dtype={"player_id": "string"})
+        for column in frame.select_dtypes(include=["object", "string"]).columns:
+            frame[column] = frame[column].fillna("")
     except (OSError, pd.errors.EmptyDataError, pd.errors.ParserError, UnicodeDecodeError) as exc:
         raise ValueError(f"could not read lineup CSV {path}: {exc}") from exc
     frame.columns = [str(col).strip().lower() for col in frame.columns]
