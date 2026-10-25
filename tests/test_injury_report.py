@@ -108,6 +108,17 @@ def test_unresolved_not_yet_submitted_marker_disables_team_coverage():
     assert metadata["team_submission_markers_resolved"] is False
 
 
+def test_pending_marker_without_same_row_team_does_not_inherit_previous_team():
+    rows = [[
+        ["10/25/2026", "07:00 (ET)", "MEM@SAC", "Memphis Grizzlies", "Coward, Cedric", "Questionable", "Wrist"],
+        ["", "", "", "", "", "NOT YET SUBMITTED", ""],
+    ]]
+    metadata = extract_team_submission_metadata([], rows)
+
+    assert metadata["teams_not_yet_submitted"] == []
+    assert metadata["team_submission_markers_resolved"] is False
+
+
 def test_positioned_word_fallback_reconstructs_official_seven_columns():
     words = []
     def add(top, x0, text):
