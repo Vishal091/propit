@@ -345,6 +345,10 @@ def _pending_confirmation_row(**overrides):
         "market_snapshot_at_utc": "2026-10-25T14:12:31Z",
         "market_age_hours": 0.3,
         "data_age_days": 2,
+        "minutes_projection_mean": 32.0,
+        "minutes_projection_std": 5.0,
+        "minutes_sample_size": 22,
+        "probability_gate_status": "INSUFFICIENT_LINEUP_DATA",
         "market_prior_snapshot_count": 2,
         "line_move_from_open": 0.0,
         "line_move_from_previous": 0.0,
@@ -419,7 +423,7 @@ def test_pending_confirmation_only_surfaces_positive_fresh_evidence_blocked_rese
     assert result["rows"][0]["pending_rank"] == 1
     assert result["diagnostics"]["scored_rows"] == 6
     assert result["diagnostics"]["evidence_blocked_rows"] == 4
-    assert result["diagnostics"]["positive_research_signal_rows"] == 3
+    assert result["diagnostics"]["positive_research_signal_rows"] == 2
     assert result["diagnostics"]["pending_rows"] == 1
     assert "not qualified picks" in result["message"].lower()
 
