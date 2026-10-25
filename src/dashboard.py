@@ -354,7 +354,20 @@ def _pending_confirmation_candidates(
     snapshot_stamp = evidence.get(
         "market_snapshot_at_utc", pd.Series("", index=evidence.index)
     ).fillna("").astype(str).str.strip()
-    is_public = line_source.eq("public_web_import")
+    market_source = evidence.get(
+        "market_source", pd.Series("", index=evidence.index)
+    ).fillna("").astype(str).str.strip().str.casefold()
+    is_public = (
+        line_source.eq("public_web_import")
+        | market_source.str.contains(r"public board|flash odds", regex=True, na=False)
+    )
+
+    minutes_mean = numeric(evidence, "minutes_projection_mean")
+    minutes_std = numeric(evidence, "minutes_projection_std")
+    minutes_sample = numeric(evidence, "minutes_sample_size")
+    probability_gate = evidence.get(
+        "probability_gate_status", pd.Series("", index=evidence.index)
+    ).fillna("").astype(str).str.strip().str.upper()
 
     prior_count = numeric(evidence, "market_prior_snapshot_count")
     movement_open = numeric(evidence, "line_move_from_open")
@@ -390,6 +403,8 @@ def _pending_confirmation_candidates(
         & market_under.ge(0) & market_under.le(1)
         & market_method.ne("") & ~market_method.eq("cross_book_pair_unavailable")
         & ~placeholder
+        & minutes_mean.notna() & minutes_std.notna() & minutes_sample.ge(3)
+        & ~probability_gate.isin({"INSUFFICIENT_DATA", "INSUFFICIENT_MINUTES_DATA", "RAW_MODEL_CAP_RED_FLAG", "CALIBRATED_CAP_RED_FLAG"})
         & (~is_public | snapshot_stamp.ne(""))
         & (~is_public | movement_present)
         & (~movement_against | movement_documented)
