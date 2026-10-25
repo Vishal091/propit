@@ -89,7 +89,7 @@ def test_report_metadata_preserves_explicit_not_yet_submitted_teams():
         ["10/25/2026", "07:00 (ET)", "BOS@NYK", "Boston Celtics", "Tatum, Jayson", "Questionable", "Wrist"],
         ["", "", "", "New York Knicks", "", "", "NOT YET SUBMITTED"],
     ]]
-    metadata = extract_team_submission_metadata(rows, [])
+    metadata = extract_team_submission_metadata([], rows)
 
     assert metadata["team_report_coverage_parsed"] is True
     assert metadata["teams_not_yet_submitted"] == ["NYK"]
