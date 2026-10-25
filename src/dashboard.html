@@ -103,6 +103,14 @@ input[type=date],select{border:1px solid var(--line);border-radius:9px;backgroun
         <div class="panel-head"><div><h2 class="panel-title" id="slate-count-title">Market candidates</h2><p class="panel-subtitle" id="slate-panel-subtitle">Probabilities remain experimental until validated against a chronological holdout.</p></div><span class="status-pill warn">RESEARCH ONLY</span></div>
         <div class="table-wrap"><table><thead><tr><th>Rank</th><th>Player</th><th>Team</th><th>Opponent</th><th>Match date</th><th>Stat</th><th>Minutes distribution</th><th>Lineup status</th><th>Line</th><th>Side</th><th>Model prob.</th><th>Market prob.</th><th>Edge</th><th>EV / unit</th><th>Confidence</th><th>Stake %</th><th>Books / lines</th><th>Best O / U</th><th>Line movement</th><th>Quote age</th><th>Data age</th><th>Availability</th><th>Screen</th></tr></thead><tbody id="slate-table"><tr><td colspan="23" class="empty">Loading…</td></tr></tbody></table></div>
       </div>
+      <div class="panel" id="pending-confirmation-panel" style="margin-top:16px">
+        <div class="panel-head">
+          <div><h2 class="panel-title">Pending confirmation</h2><p class="panel-subtitle" id="pending-confirmation-summary">Loading research-only candidates that show positive exploratory edge/EV but remain blocked by lineup or availability evidence.</p></div>
+          <span class="status-pill warn" id="pending-confirmation-badge">RESEARCH ONLY</span>
+        </div>
+        <div class="panel-body"><p class="help-text" id="pending-confirmation-note">These are leads to recheck, not qualified picks. The model will not promote expected lineups or unverified availability into confirmed status.</p></div>
+        <div class="table-wrap"><table><thead><tr><th>Rank</th><th>Player</th><th>Team</th><th>Opponent</th><th>Match date</th><th>Stat</th><th>Line</th><th>Research side</th><th>Research P</th><th>Market P</th><th>Research edge</th><th>Research EV / unit</th><th>Lineup</th><th>Availability</th><th>Quote age</th><th>Why pending</th></tr></thead><tbody id="pending-confirmation-table"><tr><td colspan="16" class="empty">Loading pending-confirmation candidates…</td></tr></tbody></table></div>
+      </div>
       <p class="footnote">Market comparison shows the best observed prices at the same line when multiple books are supplied. Line movement compares your latest board import with the previous saved snapshot. Quote age measures when PropIt captured the page, not when the publisher last changed its quote. Cross-book over/under pairs do not receive a no-vig edge unless prices can be paired to the same book. Availability is matched by player ID and scheduled match date; UNKNOWN/STALE is not a confirmation that a player will play. Check the official injury report close to tip-off.</p>
     </section>
 
@@ -417,6 +425,7 @@ input[type=date],select{border:1px solid var(--line);border-radius:9px;backgroun
         ?(Number((data.diagnostics||{}).rows_with_research_estimates||0).toLocaleString()+" rows with a research probability; "+Number((data.diagnostics||{}).rows_with_research_ev||0).toLocaleString()+" rows with an EV estimate. "+String((data.diagnostics||{}).notice||"Research estimates are not qualified picks."))
         :"Probabilities remain experimental until validated against a chronological holdout.";
       renderSlate(lastSlate, data.diagnostics || null);
+      await loadPendingConfirmation();
       if(slateView==="shortlist")renderOverview(lastSlate);
       return data;
     }catch(err){$("slate-table").innerHTML=emptyRow(23,"Could not load slate",err.message);}
@@ -430,6 +439,44 @@ input[type=date],select{border:1px solid var(--line);border-radius:9px;backgroun
     var ageText=age===null?"":" · "+(age<1?Math.round(age*60)+"m":fixed(age,1)+"h");
     return '<span class="status-pill '+cls+'" title="'+escapeHtml(note)+'">'+escapeHtml(gate)+'</span><div class="muted-cell" style="font-size:10px;margin-top:3px">'+escapeHtml(status)+escapeHtml(ageText)+'</div>';
   }
+  function renderPendingConfirmation(rows, diagnostics, message){
+    var count=rows.length;
+    var blockers=diagnostics&&diagnostics.blocker_counts?Object.entries(diagnostics.blocker_counts).map(function(entry){
+      return entry[0]+" ("+Number(entry[1]||0)+")";
+    }).join(", "):"";
+    $("pending-confirmation-badge").textContent=count?count+" PENDING":"NO MATCHES";
+    $("pending-confirmation-badge").className="status-pill warn";
+    $("pending-confirmation-summary").textContent=count
+      ?count+" positive research-signal row"+(count===1?"":"s")+" blocked by lineup/availability evidence. "+Number((diagnostics||{}).evidence_blocked_rows||0)+" rows have an evidence blocker; "+Number((diagnostics||{}).positive_research_signal_rows||0)+" met the preliminary signal screen."
+      :"No candidates passed the pending-confirmation screens. "+Number((diagnostics||{}).evidence_blocked_rows||0)+" rows have lineup/availability blockers"+(blockers?": "+blockers:"")+".";
+    $("pending-confirmation-note").textContent=count
+      ?"Research only — candidates require verified availability and a fresh, source-confirmed starter/bench role, then a full rescore. Positive research edge/EV is not proof of value or a qualified bet."
+      :"These filters are intentionally conservative: positive research edge and EV, research probability ≥53%, fresh market/data, paired prices, same-book no-vig reference, and an evidence-only blocker. Explicitly unavailable players are excluded.";
+    $("pending-confirmation-table").innerHTML=count?rows.map(function(r,i){
+      var quoteAge=num(r.market_age_hours);
+      var quoteAgeText=quoteAge===null?"Unknown":quoteAge<1?Math.round(quoteAge*60)+"m":fixed(quoteAge,1)+"h";
+      var lineupStatus=String(r.lineup_observed_status||r.lineup_status||"UNKNOWN");
+      var lineupConfirmation=String(r.lineup_confirmation_status||"UNVERIFIED");
+      var lineupAge=num(r.lineup_age_hours);
+      var lineupLabel=lineupStatus+" · "+lineupConfirmation+" · "+(lineupAge===null?"unverified":fixed(lineupAge,1)+"h");
+      var lineupTip=String(r.lineup_reason||"Starter/bench snapshot not verified.")+" Source: "+String(r.lineup_source||"unknown")+" · Source status: "+String(r.lineup_source_status||lineupConfirmation)+" · Captured UTC: "+String(r.lineup_reported_at_utc||"unknown");
+      var blocker=String(r.shortlist_status||"EVIDENCE UNVERIFIED");
+      var reason=String(r.shortlist_reason||r.availability_reason||r.lineup_reason||"Verified lineup/availability evidence required.");
+      return '<tr><td class="mono">'+escapeHtml(r.pending_rank||i+1)+'</td><td><span class="player-cell">'+escapeHtml(r.player_name)+'</span><div class="muted-cell" style="font-size:10px;margin-top:3px">ID '+escapeHtml(r.player_id)+'</div></td><td>'+teamCell(r)+'</td><td>'+opponentCell(r)+'</td><td class="mono">'+escapeHtml(gameDateLabel(r.match_date))+'</td><td>'+targetPill(r.target)+'</td><td class="mono">'+fixed(r.line,1)+'</td><td>'+sidePill(r.research_recommended_side)+'</td><td class="mono">'+pct(r.research_selected_probability)+'</td><td class="mono">'+pct(r.research_market_probability)+'</td><td class="mono">'+signed(r.research_selected_edge)+'</td><td class="mono">'+fixed(r.research_selected_ev,3)+'</td><td><span class="status-pill warn" title="'+escapeHtml(lineupTip)+'">'+escapeHtml(lineupLabel)+'</span></td><td>'+availabilityCell(r)+'</td><td class="mono">'+escapeHtml(quoteAgeText)+'</td><td><span class="status-pill warn">'+escapeHtml(blocker)+'</span><div class="muted-cell" style="font-size:10px;margin-top:3px;max-width:360px;white-space:normal">'+escapeHtml(reason)+'</div></td></tr>';
+    }).join(""):emptyRow(16,"No pending-confirmation candidates",message||"No row currently meets the research signal, freshness, market-quality, and evidence-blocker rules.");
+  }
+  async function loadPendingConfirmation(){
+    try{
+      var data=await request("/api/pending-confirmation?limit=50");
+      renderPendingConfirmation(data.rows||[],data.diagnostics||{},data.message||"");
+    }catch(err){
+      $("pending-confirmation-table").innerHTML=emptyRow(16,"Could not load pending-confirmation candidates",err.message);
+      $("pending-confirmation-badge").textContent="ERROR";
+      $("pending-confirmation-badge").className="status-pill bad";
+      $("pending-confirmation-summary").textContent="Pending-confirmation view is unavailable; check Workflow activity.";
+    }
+  }
+
   function renderSlate(rows, diagnostics){
     if(!rows.length){
       var emptyTitle=slateView==="shortlist"?"No qualifying candidates":slateView==="research"?"No research rows":"No scored markets";
