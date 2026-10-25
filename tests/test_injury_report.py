@@ -89,7 +89,7 @@ def test_report_metadata_preserves_explicit_not_yet_submitted_teams():
         ["10/25/2026", "07:00 (ET)", "BOS@NYK", "Boston Celtics", "Tatum, Jayson", "Questionable", "Wrist"],
         ["", "", "", "New York Knicks", "", "", "NOT YET SUBMITTED"],
     ]]
-    metadata = extract_team_submission_metadata([], rows)
+    metadata = extract_team_submission_metadata([], rows, target_date="2026-10-25")
 
     assert metadata["team_report_coverage_parsed"] is True
     assert metadata["teams_not_yet_submitted"] == ["NYK"]
@@ -102,7 +102,7 @@ def test_unresolved_not_yet_submitted_marker_disables_team_coverage():
         ["Date", "Time (ET)", "Game", "Team", "Player", "Status", "Injury/Illness"],
         ["10/25/2026", "07:00 (ET)", "BOS@NYK", "", "", "", "NOT YET SUBMITTED"],
     ]]
-    metadata = extract_team_submission_metadata(rows, [])
+    metadata = extract_team_submission_metadata(rows, [], target_date="2026-10-25")
 
     assert metadata["teams_not_yet_submitted"] == []
     assert metadata["team_submission_markers_resolved"] is False
@@ -117,6 +117,18 @@ def test_pending_marker_without_same_row_team_does_not_inherit_previous_team():
 
     assert metadata["teams_not_yet_submitted"] == []
     assert metadata["team_submission_markers_resolved"] is False
+
+
+def test_team_pending_markers_are_filtered_to_target_game_date():
+    rows = [[
+        ["10/25/2026", "07:00 (ET)", "MEM@SAC", "Memphis Grizzlies", "Coward, Cedric", "Questionable", "Wrist"],
+        ["", "", "", "Sacramento Kings", "", "NOT YET SUBMITTED", ""],
+        ["10/27/2026", "07:00 (ET)", "MEM@SAC", "Memphis Grizzlies", "", "NOT YET SUBMITTED", ""],
+    ]]
+    metadata = extract_team_submission_metadata([], rows, target_date="2026-10-25")
+
+    assert metadata["teams_not_yet_submitted"] == ["SAC"]
+    assert metadata["team_submission_markers_resolved"] is True
 
 
 def test_positioned_word_fallback_reconstructs_official_seven_columns():
