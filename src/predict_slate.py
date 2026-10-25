@@ -738,10 +738,12 @@ def _calibrate_market_probabilities(out: pd.DataFrame) -> pd.DataFrame:
         weight = 0.40 if minutes_reliable else 0.25
 
         # Research estimates always stay separate from decision-grade outputs.
-        # Use only a small 15% model weight against a compatible no-vig market
-        # reference. Missing inputs stay missing; no probabilities or prices are
-        # fabricated. This helps inspect uncertainty without clearing any gate.
+        # When a compatible no-vig market exists, use only 15% raw-model weight
+        # and 85% market weight. If that market reference is missing, surface a
+        # clearly-labelled raw estimate only; never invent a market edge or EV.
+        research_raw_over: float | None = None
         research_calibrated: float | None = None
+        research_display_over: float | None = None
         research_edge_over: float | None = None
         research_edge_under: float | None = None
         research_ev_over: float | None = None
@@ -751,55 +753,72 @@ def _calibrate_market_probabilities(out: pd.DataFrame) -> pd.DataFrame:
         research_market_probability: float | None = None
         research_edge: float | None = None
         research_ev: float | None = None
-        research_status = "RESEARCH_INPUTS_MISSING"
-        research_reason = "A raw model distribution and compatible two-sided no-vig market reference are required for a research estimate."
+        research_status = "RESEARCH_MODEL_MISSING"
+        research_reason = "The raw model distribution is unavailable; no research probability is displayed."
         research_total = (
             raw_over + raw_under
             if raw_over is not None and raw_under is not None else None
         )
-        if (
-            research_total is not None
-            and research_total > 1e-9
-            and market_over is not None
-            and market_under is not None
-        ):
+        if research_total is not None and research_total > 1e-9:
             research_raw_over = raw_over / research_total
-            research_calibrated = calibrate_toward_market(
-                research_raw_over, market_over, model_weight=0.15
+            research_display_over = research_raw_over
+            research_side = "OVER" if research_raw_over >= 0.5 else "UNDER"
+            research_probability = research_raw_over if research_side == "OVER" else 1.0 - research_raw_over
+            research_market_probability = (
+                market_over if research_side == "OVER" else market_under
             )
-            research_edge_over = research_calibrated - market_over
-            research_edge_under = (1.0 - research_calibrated) - market_under
-            odds_over_research = _number_or_none(row.get("odds_over_american"))
-            odds_under_research = _number_or_none(row.get("odds_under_american"))
-            if odds_over_research is not None and odds_under_research is not None:
-                research_ev_over = expected_profit_per_unit(
-                    research_calibrated * (1.0 - push), odds_over_research, p_push=push
+            research_status = "RAW_MODEL_ONLY"
+            research_reason = (
+                "Raw model probability only; no compatible two-sided no-vig market reference was available "
+                "for market shrinkage. Edge and EV are intentionally withheld. This is not a qualified pick."
+            )
+            if market_over is not None and market_under is not None:
+                research_calibrated = calibrate_toward_market(
+                    research_raw_over, market_over, model_weight=0.15
                 )
-                research_ev_under = expected_profit_per_unit(
-                    (1.0 - research_calibrated) * (1.0 - push), odds_under_research, p_push=push
-                )
-                choices = [
-                    ("OVER", research_calibrated, market_over, research_edge_over, research_ev_over),
-                    ("UNDER", 1.0 - research_calibrated, market_under, research_edge_under, research_ev_under),
-                ]
-                choices = [choice for choice in choices if choice[4] is not None]
-                if choices:
-                    choice = max(choices, key=lambda item: item[4])
-                    research_side, research_probability, research_market_probability, research_edge, research_ev = choice
-                    research_status = "RESEARCH_ONLY_UNVERIFIED"
-                    research_reason = (
-                        "Exploratory estimate uses 15% raw-model weight and 85% compatible no-vig market weight. "
-                        "Availability/lineup and all strict shortlist screens still apply; this is not a qualified pick."
+                research_display_over = research_calibrated
+                research_edge_over = research_calibrated - market_over
+                research_edge_under = (1.0 - research_calibrated) - market_under
+                odds_over_research = _number_or_none(row.get("odds_over_american"))
+                odds_under_research = _number_or_none(row.get("odds_under_american"))
+                if odds_over_research is not None and odds_under_research is not None:
+                    research_ev_over = expected_profit_per_unit(
+                        research_calibrated * (1.0 - push), odds_over_research, p_push=push
                     )
+                    research_ev_under = expected_profit_per_unit(
+                        (1.0 - research_calibrated) * (1.0 - push), odds_under_research, p_push=push
+                    )
+                    choices = [
+                        ("OVER", research_calibrated, market_over, research_edge_over, research_ev_over),
+                        ("UNDER", 1.0 - research_calibrated, market_under, research_edge_under, research_ev_under),
+                    ]
+                    choices = [choice for choice in choices if choice[4] is not None]
+                    if choices:
+                        choice = max(choices, key=lambda item: item[4])
+                        research_side, research_probability, research_market_probability, research_edge, research_ev = choice
+                        research_status = "RESEARCH_ESTIMATE_AVAILABLE"
+                        research_reason = (
+                            "Exploratory estimate uses 15% raw-model weight and 85% compatible no-vig market weight. "
+                            "Availability/lineup and all strict shortlist screens still apply; this is not a qualified pick."
+                        )
+                    else:
+                        research_status = "RESEARCH_PRICES_INVALID"
+                        research_reason = "Valid paired over/under prices were not available for research EV."
                 else:
-                    research_status = "RESEARCH_PRICES_INVALID"
-                    research_reason = "Two valid side prices were not available for research EV."
-            else:
-                research_status = "RESEARCH_PRICES_MISSING"
-                research_reason = "Both over and under prices are required for a research EV estimate."
+                    research_status = "RESEARCH_PRICES_MISSING"
+                    research_reason = (
+                        "Raw probability is shrunk toward the no-vig market, but both side prices are required "
+                        "for EV. This is not a qualified pick."
+                    )
+                    research_side = "OVER" if research_calibrated >= 0.5 else "UNDER"
+                    research_probability = research_calibrated if research_side == "OVER" else 1.0 - research_calibrated
+                    research_market_probability = market_over if research_side == "OVER" else market_under
+        else:
+            research_status = "RESEARCH_MODEL_MISSING"
+            research_reason = "A valid raw over/under model distribution was not available."
 
-        research_over_values.append(research_calibrated)
-        research_under_values.append((1.0 - research_calibrated) if research_calibrated is not None else None)
+        research_over_values.append(research_display_over)
+        research_under_values.append((1.0 - research_display_over) if research_display_over is not None else None)
         research_edge_over_values.append(research_edge_over)
         research_edge_under_values.append(research_edge_under)
         research_ev_over_values.append(research_ev_over)
