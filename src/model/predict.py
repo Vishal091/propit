@@ -33,6 +33,9 @@ def _probability_over(
     p90: float,
     fallback_std: float,
     target: str = "PTS",
+    minutes_mean: float | None = None,
+    minutes_std: float | None = None,
+    simulation_seed: int = 2027,
 ) -> tuple[float, float, str]:
     """Return P(over | no push), P(push), and the discrete distribution family."""
     outcomes = estimate_prop_outcomes(
@@ -42,6 +45,9 @@ def _probability_over(
         line=float(line),
         target=target,
         fallback_std=float(fallback_std),
+        minutes_mean=minutes_mean,
+        minutes_std=minutes_std,
+        seed=simulation_seed,
     )
     decisive = outcomes.p_over + outcomes.p_under
     conditional_over = outcomes.p_over / decisive if decisive > 1e-9 else 0.5
@@ -53,6 +59,10 @@ def predict_one(
     line: float | None,
     target: str,
     bundle: TrainedModel | None = None,
+    *,
+    minutes_mean: float | None = None,
+    minutes_std: float | None = None,
+    simulation_seed: int = 2027,
 ) -> Prediction:
     """Predict expected stat and interval; calculate P(over) only with a line."""
     if bundle is None:
@@ -67,7 +77,9 @@ def predict_one(
     distribution: str | None = None
     if line is not None:
         p_over, p_push, distribution = _probability_over(
-            float(line), p10, p50, p90, float(bundle.residual_std), target=target
+            float(line), p10, p50, p90, float(bundle.residual_std), target=target,
+            minutes_mean=minutes_mean, minutes_std=minutes_std,
+            simulation_seed=simulation_seed,
         )
     importance = bundle.q50.feature_importances_
     baselines = getattr(bundle, "feature_means", None) or {}
