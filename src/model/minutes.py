@@ -143,8 +143,11 @@ def project_minutes(
     last20_mean = float(np.mean(last20))
     trend = last5_mean - last20_mean
     role_change = bool(
-        len(last5) >= 3
-        and (abs(trend) >= 4.5 or (last20_mean > 0 and abs(last5_mean / last20_mean - 1.0) >= 0.20))
+        team_changed
+        or (
+            len(last5) >= 3
+            and (abs(trend) >= 4.5 or (last20_mean > 0 and abs(last5_mean / last20_mean - 1.0) >= 0.20))
+        )
     )
 
     current_values = np.array([], dtype=float)
