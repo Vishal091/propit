@@ -296,3 +296,34 @@ def test_pregame_workflow_html_explains_separate_event_and_snapshot_dates():
     assert 'id="lineup-game-date"' in html
     assert "Set the injury-report and lineup dates above to the same NBA-local date" in html
     assert "nba_game_date:injuryDate" in html
+
+
+
+def test_pregame_workflow_refreshes_slate_when_snapshot_date_is_already_archived(monkeypatch):
+    from src import dashboard
+
+    captured = {}
+    monkeypatch.setattr(dashboard, "_date_already_archived", lambda value: value == "2026-10-25")
+
+    def fake_steps(plan):
+        captured["plan"] = plan
+        return {"ok": True, "steps": [], "message": "All requested steps completed."}
+
+    monkeypatch.setattr(dashboard, "_run_steps", fake_steps)
+    request = dashboard.PregameWorkflowRequest(
+        game_date="2026-10-25",
+        nba_game_date="2026-10-25",
+    )
+
+    result = dashboard.api_pregame_workflow(request)
+
+    assert result["ok"] is True
+    assert captured["plan"] == [
+        ("scripts.import_nba_status", ["--game-date", "2026-10-25"]),
+        ("scripts.fetch_lineups", ["--game-date", "2026-10-25"]),
+        ("scripts.fetch_public_props", []),
+        ("src.predict_slate", ["--lines", "data/prop_lines_public.csv", "--top", "10"]),
+    ]
+    assert not any(step[0] == "scripts.archive_predictions" for step in captured["plan"])
+    assert "public markets scored" in result["message"]
+    assert "no duplicate history row was added" in result["message"]
