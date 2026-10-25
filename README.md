@@ -52,7 +52,7 @@ Output files:
 
 The slate comparison consolidates same player/stat/line rows and uses the best observed price on each side. When multiple book rows are present, the market table reports distinct books, consensus line range, and best Over/Under prices. A no-vig probability is only computed from a same-book pair (or a row explicitly representing one book); if the over quote and under quote are from different books, PropIt withholds that no-vig edge instead of treating a cross-book pair as fair probability. The default public importer is still only as broad as the Flash Odds page provides; it does not automatically subscribe to every sportsbook.
 
-Market quote age means when PropIt captured the page, not when the provider last changed its quote. Public snapshot rows older than 12 hours are blocked from the shortlist by default; change this intentionally with --max-market-age-hours. The page can still show these rows in All markets for inspection. Movement since the last import requires at least two successful refreshes. Do not interpret missing data as a pick, and verify current line, price, player ID and local availability independently.
+Market quote age means when PropIt captured the page, not when the provider last changed its quote. Public snapshot rows older than two hours are blocked from the shortlist by default; relaxing this with --max-market-age-hours is not recommended for game-day decisions. The page can still show these rows in All markets for inspection. Movement since the last import requires at least two successful refreshes. Do not interpret missing data as a pick, and verify current line, price, player ID and local availability independently.
 
 ## Player availability and shortlist safeguards
 
@@ -65,11 +65,20 @@ Start from the empty template:
 
 Required columns are `player_id,match_date,status,reported_at_utc`. Optional columns are `player_name,team_abbreviation,reason,source`. Use the NBA player ID, the player's **scheduled match date** (YYYY-MM-DD), the status shown by the source, and the time you checked it as an ISO-8601 UTC timestamp (for example `2026-10-25T15:15:00Z`). Use one row per player/date and refresh it when a report changes. The template is header-only; do not enter example statuses as if they were verified.
 
-The slate shows the status and freshness gate. Fresh `Available`/`Probable` reports are CLEAR; `Out`, `Inactive`, `Suspended`, or `Rest` blocks a row; `Questionable`/`Doubtful` forces review and removes the row from the shortlist. Statuses older than six hours, unrecognized statuses, missing records, or mismatched dates/teams are marked STALE/UNVERIFIED rather than silently treated as healthy. In the normal dashboard flow, unverified rows can still appear as model candidates, but their availability gate and warning are shown explicitly. To fail closed and only shortlist rows with a fresh Available/Probable status, run:
+The slate shows the status and freshness gate. Fresh `Available`/`Probable` reports are CLEAR; `Out`, `Inactive`, `Suspended`, or `Rest` blocks a row; `Questionable`/`Doubtful` forces review and removes the row from the shortlist. Statuses older than two hours, unrecognized statuses, missing records, or mismatched dates/teams are marked STALE/UNVERIFIED rather than silently treated as healthy. The CLI fails closed by default: only a fresh Available/Probable status can pass shortlist eligibility. Use the explicit research-only override below to inspect candidates without verified availability:
 
     .\.venv\Scripts\python.exe -m src.predict_slate --lines data\prop_lines_public.csv --require-verified-availability
 
-The flag affects shortlist eligibility, not the all-markets audit output. This is an operator-maintained safeguard, **not** an automatic injury feed; confirm status close to tip-off because the official report can update during the day.
+The override relaxes shortlist eligibility only; rows remain explicitly marked unverified. This is an operator-maintained safeguard, **not** an automatic injury feed. Statuses are limited to a two-hour freshness window, but the app does not have tip-off-time-aware injury refresh logic yet.
+
+
+## Probability and risk controls
+
+For props with a line, the estimator uses a discrete Poisson or negative-binomial count distribution fitted to the model's context-specific quantile spread. Points use a small wider-tail mixture. Whole-number lines carry an explicit push probability; reported over/under probabilities used for calibration are conditional on a non-push result, and expected value accounts for the push separately.
+
+A qualified market probability is shrunk toward a compatible two-sided, same-book no-vig price. Until the model has a verified projected-minutes distribution and role confirmation, the model's weight is limited to 25% and the directional probability cap is 65%. A raw probability breach is flagged for review rather than silently clipped. Missing no-vig market data withholds the calibrated probability. Edges above ten points are red-flagged without a specific logged injury/role/minutes/matchup explanation.
+
+Shortlisting now requires at least a four-point calibrated edge and strictly positive expected value, a market snapshot no older than two hours, verified fresh player availability by default, and prior quote history to check public-board line movement. It also limits exposure to one prop per player-game, two props per game, quarter-Kelly stake sizes capped at 2% of bankroll per prop, and 5% total daily exposure. The minutes model is still a rolling proxy, not a true minutes-distribution model, so current lineup and rotation verification remain essential. These controls improve discipline; they do not establish profitable predictive skill. Validate using chronological Brier score, log loss, calibration buckets, ROI from genuinely pregame prices, and closing-line value before increasing model weight.
 
 ## Run the local dashboard
 
