@@ -13,6 +13,7 @@ from typing import Any
 import pandas as pd
 
 from src.lineups import DEFAULT_LINEUP_PATH, normalize_lineup_status
+from src.player_identity import normalize_player_name
 
 DEFAULT_HISTORY = Path("data/player_lineups_history.csv")
 INPUT_COLUMNS = {"player_id", "player_name", "team_abbreviation", "starting_status"}
@@ -112,7 +113,26 @@ def write_snapshot(
     )
     old = _read(output_path)
     if not old.empty and "match_date" in old.columns:
-        old = old.loc[pd.to_datetime(old["match_date"], errors="coerce").dt.strftime("%Y-%m-%d") != game_date]
+        old_dates = pd.to_datetime(old["match_date"], errors="coerce").dt.strftime("%Y-%m-%d")
+        new_ids = set(rows["player_id"].fillna("").astype(str).str.strip().loc[lambda value: value.ne("")])
+        new_name_team = {
+            (normalize_player_name(row.get("player_name")), str(row.get("team_abbreviation") or "").upper().strip())
+            for row in rows.to_dict(orient="records")
+        }
+        old_ids = old.get("player_id", pd.Series("", index=old.index)).fillna("").astype(str).str.strip()
+        old_names = old.get("player_name", pd.Series("", index=old.index)).map(normalize_player_name)
+        old_teams = old.get("team_abbreviation", pd.Series("", index=old.index)).fillna("").astype(str).str.upper().str.strip()
+        replace_row = old_dates.eq(game_date) & (
+            old_ids.isin(new_ids)
+            | pd.Series(
+                [(name, team) in new_name_team for name, team in zip(old_names, old_teams)],
+                index=old.index,
+            )
+        )
+        # Preserve other players already captured for the same slate date. This
+        # lets the operator update one starter or return limit without erasing
+        # still-fresh rows for teammates captured earlier.
+        old = old.loc[~replace_row]
     current = pd.concat([old, rows], ignore_index=True, sort=False) if not old.empty else rows
     output_path.parent.mkdir(parents=True, exist_ok=True)
     temp = output_path.with_suffix(output_path.suffix + ".tmp")
