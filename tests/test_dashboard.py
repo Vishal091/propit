@@ -327,3 +327,135 @@ def test_pregame_workflow_refreshes_slate_when_snapshot_date_is_already_archived
     assert not any(step[0] == "scripts.archive_predictions" for step in captured["plan"])
     assert "public markets scored" in result["message"]
     assert "no duplicate history row was added" in result["message"]
+
+
+
+def _pending_confirmation_row(**overrides):
+    row = {
+        "player_id": 11,
+        "player_name": "Test Player",
+        "team_abbreviation": "BOS",
+        "opponent_abbreviation": "NYK",
+        "opponent_team": "New York Knicks",
+        "match_date": "2026-10-25",
+        "target": "PTS",
+        "line": 20.5,
+        "bookmaker": "Flash Odds public board (over Underdog; under Underdog)",
+        "line_source": "public_web_import",
+        "market_snapshot_at_utc": "2026-10-25T14:12:31Z",
+        "market_age_hours": 0.3,
+        "data_age_days": 2,
+        "market_prior_snapshot_count": 2,
+        "line_move_from_open": 0.0,
+        "line_move_from_previous": 0.0,
+        "movement_explanation": "",
+        "edge_explanation": "Rotation role changed after injury news.",
+        "market_no_vig_p_over": 0.50,
+        "market_no_vig_p_under": 0.50,
+        "market_no_vig_method": "same_book_pair",
+        "odds_over_american": -110,
+        "odds_under_american": -110,
+        "research_status": "RESEARCH_ESTIMATE_AVAILABLE",
+        "research_recommended_side": "OVER",
+        "research_selected_probability": 0.56,
+        "research_market_probability": 0.50,
+        "research_selected_edge": 0.06,
+        "research_selected_ev": 0.07,
+        "shortlist_status": "INSUFFICIENT_LINEUP_DATA",
+        "shortlist_reason": "No fresh confirmed STARTER/BENCH snapshot matched this player and scheduled game.",
+        "lineup_status": "UNKNOWN",
+        "lineup_observed_status": "STARTER",
+        "lineup_gate": "UNVERIFIED",
+        "lineup_confirmation_status": "PROJECTED",
+        "lineup_confidence_label": "PROJECTED",
+        "lineup_reason": "Projected lineup only.",
+        "lineup_source": "https://www.rotowire.com/basketball/nba-lineups.php",
+        "lineup_source_status": "Expected Lineup",
+        "lineup_reported_at_utc": "2026-10-25T14:12:00Z",
+        "lineup_age_hours": 0.3,
+        "availability_status": "AVAILABLE",
+        "availability_gate": "CLEAR",
+        "availability_reason": "Fresh official report checked.",
+        "availability_age_hours": 0.2,
+        "availability_source": "Official NBA injury report",
+    }
+    row.update(overrides)
+    return row
+
+
+def test_pending_confirmation_only_surfaces_positive_fresh_evidence_blocked_research_signals(tmp_path, monkeypatch):
+    from src import dashboard
+
+    latest_path = tmp_path / "latest.csv"
+    pd.DataFrame([
+        _pending_confirmation_row(),
+        _pending_confirmation_row(
+            player_id=12, player_name="Negative EV",
+            research_selected_ev=-0.01,
+        ),
+        _pending_confirmation_row(
+            player_id=13, player_name="Stale market",
+            market_age_hours=2.1,
+        ),
+        _pending_confirmation_row(
+            player_id=14, player_name="Explicitly out",
+            shortlist_status="AVAILABILITY_BLOCKED",
+        ),
+        _pending_confirmation_row(
+            player_id=15, player_name="No evidence blocker",
+            shortlist_status="BELOW_THRESHOLDS",
+        ),
+        _pending_confirmation_row(
+            player_id=16, player_name="Low research probability",
+            research_selected_probability=0.51,
+        ),
+    ]).to_csv(latest_path, index=False)
+    monkeypatch.setattr(dashboard, "LATEST", latest_path)
+
+    result = dashboard.api_pending_confirmation(limit=50)
+
+    assert result["count"] == 1
+    assert result["rows"][0]["player_name"] == "Test Player"
+    assert result["rows"][0]["pending_rank"] == 1
+    assert result["diagnostics"]["scored_rows"] == 6
+    assert result["diagnostics"]["evidence_blocked_rows"] == 4
+    assert result["diagnostics"]["positive_research_signal_rows"] == 3
+    assert result["diagnostics"]["pending_rows"] == 1
+    assert "not qualified picks" in result["message"].lower()
+
+
+def test_pending_confirmation_requires_market_movement_evidence_and_excludes_placeholder_sources(tmp_path, monkeypatch):
+    from src import dashboard
+
+    latest_path = tmp_path / "latest.csv"
+    pd.DataFrame([
+        _pending_confirmation_row(
+            player_id=20, player_name="No price history",
+            market_prior_snapshot_count=0,
+        ),
+        _pending_confirmation_row(
+            player_id=21, player_name="Placeholder source",
+            bookmaker="Example sportsbook",
+        ),
+        _pending_confirmation_row(
+            player_id=22, player_name="Adverse movement",
+            line_move_from_open=1.0,
+            movement_explanation="",
+        ),
+    ]).to_csv(latest_path, index=False)
+    monkeypatch.setattr(dashboard, "LATEST", latest_path)
+
+    result = dashboard.api_pending_confirmation(limit=50)
+
+    assert result["count"] == 0
+    assert result["diagnostics"]["evidence_blocked_rows"] == 3
+
+
+def test_pending_confirmation_dashboard_has_separate_research_only_panel():
+    from src import dashboard
+
+    html = dashboard.HTML_FILE.read_text(encoding="utf-8")
+    assert 'id="pending-confirmation-panel"' in html
+    assert 'id="pending-confirmation-table"' in html
+    assert 'request("/api/pending-confirmation?limit=50")' in html
+    assert "These are leads to recheck, not qualified picks." in html
