@@ -17,7 +17,9 @@ _OUTPUT_COLUMNS = (
 
 
 def normalize_lineup_status(value: Any) -> str:
-    raw = " ".join(str(value or "").strip().upper().replace("_", " ").split())
+    if value is None or pd.isna(value):
+        return "UNKNOWN"
+    raw = " ".join(str(value).strip().upper().replace("_", " ").split())
     aliases = {
         "STARTER": "STARTER", "STARTING": "STARTER", "CONFIRMED STARTER": "STARTER",
         "BENCH": "BENCH", "RESERVE": "BENCH", "CONFIRMED BENCH": "BENCH",
