@@ -37,6 +37,11 @@ class GameDateRequest(BaseModel):
     game_date: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
 
 
+class PregameWorkflowRequest(GameDateRequest):
+    """Keep the archive snapshot date separate from the NBA-local event date."""
+    nba_game_date: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+
+
 def _validate_game_date(value: str) -> str:
     try:
         return date.fromisoformat(value).isoformat()
@@ -425,25 +430,33 @@ def api_lineups(request: GameDateRequest) -> dict[str, Any]:
 
 
 @app.post("/api/pregame-workflow")
-def api_pregame_workflow(request: GameDateRequest) -> dict[str, Any]:
-    """Refresh lines, predict, and archive one snapshot for the selected snapshot date."""
+def api_pregame_workflow(request: PregameWorkflowRequest) -> dict[str, Any]:
+    """Refresh date-specific availability and lineup evidence before scoring and archiving."""
     try:
-        game_date = _validate_game_date(request.game_date)
+        snapshot_date = _validate_game_date(request.game_date)
+        nba_game_date = _validate_game_date(request.nba_game_date)
     except ValueError as exc:
         return {"ok": False, "steps": [], "message": str(exc)}
-    if _date_already_archived(game_date):
+    if _date_already_archived(snapshot_date):
         return {
             "ok": False, "steps": [],
-            "message": f"A snapshot dated {game_date} is already in data/prediction_history.csv. No files were changed. Use Refresh Slate for a new view, or intentionally archive another snapshot from the command line.",
+            "message": f"A snapshot dated {snapshot_date} is already in data/prediction_history.csv. No files were changed. Use Refresh Slate for a new view, or intentionally archive another snapshot from the command line.",
         }
     plan = [
+        ("scripts.import_nba_status", ["--game-date", nba_game_date]),
+        ("scripts.fetch_lineups", ["--game-date", nba_game_date]),
         ("scripts.fetch_public_props", []),
         ("src.predict_slate", ["--lines", "data/prop_lines_public.csv", "--top", "10"]),
-        ("scripts.archive_predictions", ["--game-date", game_date]),
+        ("scripts.archive_predictions", ["--game-date", snapshot_date]),
     ]
     result = _run_steps(plan)
     if result["ok"]:
-        result["message"] = f"Slate refreshed and pregame snapshot archived for snapshot date {game_date}. Confirm this was before tip-off."
+        result["message"] = (
+            f"Availability and lineup sources refreshed for NBA-local game date {nba_game_date}; "
+            f"public markets scored and pregame snapshot archived for snapshot date {snapshot_date}. "
+            "Expected/projected lineups remain unverified and cannot pass the strict shortlist gate; "
+            "check the row-level screening diagnostics before relying on any candidate."
+        )
     return result
 
 
