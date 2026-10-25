@@ -192,7 +192,7 @@ def test_research_estimate_is_available_but_strict_probability_stays_withheld():
     lineup_row = result.loc[0]
     assert lineup_row["probability_gate_status"] == "INSUFFICIENT_LINEUP_DATA"
     assert pd.isna(lineup_row["model_p_over"])
-    assert lineup_row["research_status"] == "RESEARCH_ONLY_UNVERIFIED"
+    assert lineup_row["research_status"] == "RESEARCH_ESTIMATE_AVAILABLE"
     assert lineup_row["research_model_p_over"] == pytest.approx(0.5725)
     assert lineup_row["research_model_p_under"] == pytest.approx(0.4275)
     assert lineup_row["research_recommended_side"] in {"OVER", "UNDER"}
@@ -201,8 +201,39 @@ def test_research_estimate_is_available_but_strict_probability_stays_withheld():
     availability_row = result.loc[1]
     assert availability_row["probability_gate_status"] == "INSUFFICIENT_AVAILABILITY_DATA"
     assert pd.isna(availability_row["model_p_over"])
-    assert availability_row["research_status"] == "RESEARCH_ONLY_UNVERIFIED"
+    assert availability_row["research_status"] == "RESEARCH_ESTIMATE_AVAILABLE"
     assert availability_row["research_model_p_over"] == pytest.approx(0.5395)
+
+
+def test_research_view_keeps_raw_probability_when_no_no_vig_market_exists():
+    rows = pd.DataFrame([{
+        "player_name": "No No-Vig Reference",
+        "availability_gate": "UNVERIFIED",
+        "lineup_gate": "UNVERIFIED",
+        "minutes_projection_mean": 28.0,
+        "minutes_projection_std": 5.0,
+        "minutes_sample_size": 12,
+        "minutes_stable": True,
+        "minutes_role_confirmed": False,
+        "model_p_over_raw": 0.62,
+        "model_p_under_raw": 0.38,
+        "market_no_vig_p_over": None,
+        "market_no_vig_p_under": None,
+        "odds_over_american": -110,
+        "odds_under_american": -110,
+        "p_push": 0.0,
+    }])
+
+    result = _calibrate_market_probabilities(rows)
+    row = result.iloc[0]
+
+    assert row["probability_gate_status"] == "INSUFFICIENT_AVAILABILITY_DATA"
+    assert pd.isna(row["model_p_over"])
+    assert row["research_status"] == "RAW_MODEL_ONLY"
+    assert row["research_model_p_over"] == pytest.approx(0.62)
+    assert pd.isna(row["research_selected_edge"])
+    assert pd.isna(row["research_selected_ev"])
+    assert "Edge and EV are intentionally withheld" in row["research_reason"]
 
 
 def test_empty_shortlist_preserves_schema_for_dashboard_csv():
