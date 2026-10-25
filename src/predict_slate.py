@@ -695,6 +695,21 @@ def _calibrate_market_probabilities(out: pd.DataFrame) -> pd.DataFrame:
     edge_under_values: list[float | None] = []
     ev_over_values: list[float | None] = []
     ev_under_values: list[float | None] = []
+    # Separate exploratory estimates are retained for the dashboard's
+    # Research view. They never feed the strict shortlist or stake sizing.
+    research_over_values: list[float | None] = []
+    research_under_values: list[float | None] = []
+    research_edge_over_values: list[float | None] = []
+    research_edge_under_values: list[float | None] = []
+    research_ev_over_values: list[float | None] = []
+    research_ev_under_values: list[float | None] = []
+    research_sides: list[str | None] = []
+    research_probabilities: list[float | None] = []
+    research_market_probabilities: list[float | None] = []
+    research_edges: list[float | None] = []
+    research_evs: list[float | None] = []
+    research_statuses: list[str] = []
+    research_reasons: list[str] = []
 
     for row in result.to_dict(orient="records"):
         raw_over = _number_or_none(row.get("model_p_over_raw", row.get("model_p_over")))
@@ -721,6 +736,82 @@ def _calibrate_market_probabilities(out: pd.DataFrame) -> pd.DataFrame:
         uncertain = not minutes_reliable
         cap = 0.65 if uncertain else 0.72
         weight = 0.40 if minutes_reliable else 0.25
+
+        # Research estimates always stay separate from decision-grade outputs.
+        # Use only a small 15% model weight against a compatible no-vig market
+        # reference. Missing inputs stay missing; no probabilities or prices are
+        # fabricated. This helps inspect uncertainty without clearing any gate.
+        research_calibrated: float | None = None
+        research_edge_over: float | None = None
+        research_edge_under: float | None = None
+        research_ev_over: float | None = None
+        research_ev_under: float | None = None
+        research_side: str | None = None
+        research_probability: float | None = None
+        research_market_probability: float | None = None
+        research_edge: float | None = None
+        research_ev: float | None = None
+        research_status = "RESEARCH_INPUTS_MISSING"
+        research_reason = "A raw model distribution and compatible two-sided no-vig market reference are required for a research estimate."
+        research_total = (
+            raw_over + raw_under
+            if raw_over is not None and raw_under is not None else None
+        )
+        if (
+            research_total is not None
+            and research_total > 1e-9
+            and market_over is not None
+            and market_under is not None
+        ):
+            research_raw_over = raw_over / research_total
+            research_calibrated = calibrate_toward_market(
+                research_raw_over, market_over, model_weight=0.15
+            )
+            research_edge_over = research_calibrated - market_over
+            research_edge_under = (1.0 - research_calibrated) - market_under
+            odds_over_research = _number_or_none(row.get("odds_over_american"))
+            odds_under_research = _number_or_none(row.get("odds_under_american"))
+            if odds_over_research is not None and odds_under_research is not None:
+                research_ev_over = expected_profit_per_unit(
+                    research_calibrated * (1.0 - push), odds_over_research, p_push=push
+                )
+                research_ev_under = expected_profit_per_unit(
+                    (1.0 - research_calibrated) * (1.0 - push), odds_under_research, p_push=push
+                )
+                choices = [
+                    ("OVER", research_calibrated, market_over, research_edge_over, research_ev_over),
+                    ("UNDER", 1.0 - research_calibrated, market_under, research_edge_under, research_ev_under),
+                ]
+                choices = [choice for choice in choices if choice[4] is not None]
+                if choices:
+                    choice = max(choices, key=lambda item: item[4])
+                    research_side, research_probability, research_market_probability, research_edge, research_ev = choice
+                    research_status = "RESEARCH_ONLY_UNVERIFIED"
+                    research_reason = (
+                        "Exploratory estimate uses 15% raw-model weight and 85% compatible no-vig market weight. "
+                        "Availability/lineup and all strict shortlist screens still apply; this is not a qualified pick."
+                    )
+                else:
+                    research_status = "RESEARCH_PRICES_INVALID"
+                    research_reason = "Two valid side prices were not available for research EV."
+            else:
+                research_status = "RESEARCH_PRICES_MISSING"
+                research_reason = "Both over and under prices are required for a research EV estimate."
+
+        research_over_values.append(research_calibrated)
+        research_under_values.append((1.0 - research_calibrated) if research_calibrated is not None else None)
+        research_edge_over_values.append(research_edge_over)
+        research_edge_under_values.append(research_edge_under)
+        research_ev_over_values.append(research_ev_over)
+        research_ev_under_values.append(research_ev_under)
+        research_sides.append(research_side)
+        research_probabilities.append(research_probability)
+        research_market_probabilities.append(research_market_probability)
+        research_edges.append(research_edge)
+        research_evs.append(research_ev)
+        research_statuses.append(research_status)
+        research_reasons.append(research_reason)
+
         calibrated: float | None = None
         gate = "INSUFFICIENT_DATA"
 
@@ -791,7 +882,20 @@ def _calibrate_market_probabilities(out: pd.DataFrame) -> pd.DataFrame:
     result["model_edge_under_vs_market"] = edge_under_values
     result["ev_over_per_1_unit"] = ev_over_values
     result["ev_under_per_1_unit"] = ev_under_values
-    result["calibration_method"] = "market_shrinkage; pushes excluded from conditional probability"
+    result["research_model_p_over"] = research_over_values
+    result["research_model_p_under"] = research_under_values
+    result["research_model_edge_over_vs_market"] = research_edge_over_values
+    result["research_model_edge_under_vs_market"] = research_edge_under_values
+    result["research_ev_over_per_1_unit"] = research_ev_over_values
+    result["research_ev_under_per_1_unit"] = research_ev_under_values
+    result["research_recommended_side"] = research_sides
+    result["research_selected_probability"] = research_probabilities
+    result["research_market_probability"] = research_market_probabilities
+    result["research_selected_edge"] = research_edges
+    result["research_selected_ev"] = research_evs
+    result["research_status"] = research_statuses
+    result["research_reason"] = research_reasons
+    result["calibration_method"] = "strict market shrinkage; pushes excluded from conditional probability"
     return result
 
 
