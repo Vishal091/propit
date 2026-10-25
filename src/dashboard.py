@@ -250,14 +250,30 @@ def api_slate(view: str = Query(default="shortlist", pattern="^(shortlist|all|re
     diagnostics: dict[str, Any] = {}
     if view == "research" and not frame.empty:
         if "research_selected_ev" in frame.columns:
-            frame["_research_ev_sort"] = pd.to_numeric(frame["research_selected_ev"], errors="coerce")
-            frame["_research_edge_sort"] = pd.to_numeric(frame.get("research_selected_edge"), errors="coerce")
+            ev_values = pd.to_numeric(frame["research_selected_ev"], errors="coerce")
+            edge_values = (
+                pd.to_numeric(frame["research_selected_edge"], errors="coerce")
+                if "research_selected_edge" in frame.columns
+                else pd.Series([float("nan")] * len(frame), index=frame.index, dtype="float64")
+            )
+            frame["_research_ev_sort"] = ev_values
+            frame["_research_edge_sort"] = edge_values
             frame = frame.sort_values(
                 ["_research_ev_sort", "_research_edge_sort"],
                 ascending=[False, False], na_position="last", kind="stable",
             ).drop(columns=["_research_ev_sort", "_research_edge_sort"])
-            available = int(pd.to_numeric(frame.get("research_model_p_over"), errors="coerce").notna().sum())
-            with_ev = int(pd.to_numeric(frame.get("research_selected_ev"), errors="coerce").notna().sum())
+            research_probabilities = (
+                pd.to_numeric(frame["research_model_p_over"], errors="coerce")
+                if "research_model_p_over" in frame.columns
+                else pd.Series([float("nan")] * len(frame), index=frame.index, dtype="float64")
+            )
+            research_ev_values = (
+                pd.to_numeric(frame["research_selected_ev"], errors="coerce")
+                if "research_selected_ev" in frame.columns
+                else pd.Series([float("nan")] * len(frame), index=frame.index, dtype="float64")
+            )
+            available = int(research_probabilities.notna().sum())
+            with_ev = int(research_ev_values.notna().sum())
             diagnostics = {
                 "scored_rows": int(len(frame)),
                 "rows_with_research_estimates": available,
