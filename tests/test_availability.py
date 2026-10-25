@@ -167,3 +167,29 @@ def test_archive_preserves_availability_audit_fields():
     assert row["availability_gate"] == "CLEAR"
     assert row["availability_source"] == "Official NBA injury report"
     assert row["availability_age_hours"] == pytest.approx(3.0)
+
+
+
+def test_official_report_name_format_matches_when_player_id_missing(tmp_path):
+    path = tmp_path / "availability.csv"
+    pd.DataFrame([{
+        "player_id": "",
+        "player_name": "Tatum III, Jayson",
+        "team_abbreviation": "BOS",
+        "match_date": "2026-10-25",
+        "status": "Available",
+        "reason": "Official report row",
+        "source": "https://official.nba.com/report.pdf",
+        "reported_at_utc": "2026-10-25T14:30:00Z",
+        "retrieved_at_utc": "2026-10-25T14:35:00Z",
+    }]).to_csv(path, index=False)
+    rows = pd.DataFrame([{
+        "player_id": 1628369,
+        "player_name": "Jayson Tatum III",
+        "team_abbreviation": "BOS",
+        "match_date": "2026-10-25",
+    }])
+    result = attach_availability(rows, path, now_utc="2026-10-25T15:00:00Z")
+    assert result.iloc[0]["availability_status"] == "AVAILABLE"
+    assert result.iloc[0]["availability_gate"] == "CLEAR"
+    assert result.iloc[0]["availability_retrieved_at_utc"] == "2026-10-25T14:35:00Z"
