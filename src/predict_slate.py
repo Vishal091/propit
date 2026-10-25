@@ -714,10 +714,10 @@ def _calibrate_market_probabilities(out: pd.DataFrame) -> pd.DataFrame:
 
         if availability_gate != "CLEAR":
             gate = "INSUFFICIENT_AVAILABILITY_DATA"
-        elif lineup_gate != "CLEAR" or not minutes_confirmed:
-            gate = "INSUFFICIENT_LINEUP_DATA"
         elif minutes_mean is None or minutes_std is None or minutes_sample < 3:
             gate = "INSUFFICIENT_MINUTES_DATA"
+        elif lineup_gate != "CLEAR" or not minutes_confirmed:
+            gate = "INSUFFICIENT_LINEUP_DATA"
         elif raw_over is not None and raw_under is not None and market_over is not None:
             raw_total = raw_over + raw_under
             raw_conditional_over = raw_over / raw_total if raw_total > 1e-9 else raw_over
