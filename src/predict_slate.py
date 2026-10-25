@@ -714,6 +714,8 @@ def _calibrate_market_probabilities(out: pd.DataFrame) -> pd.DataFrame:
 
         if availability_gate != "CLEAR":
             gate = "INSUFFICIENT_AVAILABILITY_DATA"
+        elif lineup_gate != "CLEAR" or not minutes_confirmed:
+            gate = "INSUFFICIENT_LINEUP_DATA"
         elif minutes_mean is None or minutes_std is None or minutes_sample < 3:
             gate = "INSUFFICIENT_MINUTES_DATA"
         elif raw_over is not None and raw_under is not None and market_over is not None:
@@ -797,6 +799,7 @@ def _decorate_and_rank_candidates(
     max_data_age_days: int = 14,
     max_market_age_hours: float = 2.0,
     require_verified_availability: bool = False,
+    require_verified_lineup: bool = False,
     today: pd.Timestamp | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Filter market rows and rank the ones that pass configured research screens."""
@@ -848,6 +851,16 @@ def _decorate_and_rank_candidates(
             status = "AVAILABILITY_UNVERIFIED"
             reason = "Strict availability mode requires a fresh Available/Probable report. " + availability_reason
             side = prob = market_prob = edge = ev = None
+        elif str(row.get("probability_gate_status") or "").upper() == "INSUFFICIENT_LINEUP_DATA":
+            status, reason = "INSUFFICIENT_LINEUP_DATA", "No fresh confirmed STARTER/BENCH snapshot matched this player and scheduled game; probability withheld."
+            side = prob = market_prob = edge = ev = None
+        elif require_verified_lineup and (
+            str(row.get("lineup_gate") or "UNVERIFIED").upper() != "CLEAR"
+            or not (row.get("minutes_role_confirmed") is True or str(row.get("minutes_role_confirmed") or "").strip().lower() in {"1", "true", "yes"})
+        ):
+            status = "LINEUP_UNVERIFIED"
+            reason = "Strict shortlist mode requires a fresh, source-attributed STARTER/BENCH status. Update data/player_lineups.csv first."
+            side = prob = market_prob = edge = ev = None
         elif row.get("line") is None or pd.isna(row.get("line")):
             status, reason = "NEEDS_LINE", "Supply a current prop line and both over/under prices."
             side = prob = market_prob = edge = ev = None
@@ -874,6 +887,8 @@ def _decorate_and_rank_candidates(
                 reason_text = "No fresh Available/Probable status matched this player and scheduled game; probability withheld."
             elif gate_status == "INSUFFICIENT_MINUTES_DATA":
                 reason_text = "Fewer than three usable historical minutes rows or a missing minutes distribution; probability withheld."
+            elif gate_status == "INSUFFICIENT_LINEUP_DATA":
+                reason_text = "No fresh confirmed starter/bench role matched this player and scheduled game; probability withheld."
             else:
                 reason_text = "A compatible current two-sided no-vig market reference is missing; no calibrated probability is released."
             status, reason = gate_status, reason_text
@@ -1016,6 +1031,8 @@ def main() -> None:
     parser.add_argument("--max-lineup-age-hours", type=float, default=DEFAULT_LINEUP_MAX_AGE_HOURS, help="treat older starter/bench snapshots as unverified")
     parser.add_argument("--require-verified-availability", dest="require_verified_availability", action="store_true", default=True, help="require a fresh Available/Probable status (default)")
     parser.add_argument("--allow-unverified-availability", dest="require_verified_availability", action="store_false", help="relax availability gate for research only; never treat as confirmed")
+    parser.add_argument("--require-verified-lineup", dest="require_verified_lineup", action="store_true", default=True, help="require a fresh confirmed STARTER/BENCH snapshot for shortlist eligibility (default)")
+    parser.add_argument("--allow-unverified-lineup", dest="require_verified_lineup", action="store_false", help="research-only override for missing starter/bench snapshots")
     args = parser.parse_args()
     if args.top < 1:
         parser.error("--top must be at least 1")
@@ -1187,6 +1204,7 @@ def main() -> None:
         min_probability=args.min_probability, max_data_age_days=args.max_data_age_days,
         max_market_age_hours=args.max_market_age_hours,
         require_verified_availability=args.require_verified_availability,
+        require_verified_lineup=args.require_verified_lineup,
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     out.to_csv(args.output, index=False)
