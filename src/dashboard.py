@@ -375,10 +375,10 @@ def _pending_confirmation_candidates(
     movement = movement_open.where(movement_open.notna(), movement_previous)
     movement_explanation = evidence.get(
         "movement_explanation", pd.Series("", index=evidence.index)
-    ).fillna("").astype(str).str.strip()
+    ).astype("string").fillna("").str.strip()
     edge_explanation = evidence.get(
         "edge_explanation", pd.Series("", index=evidence.index)
-    ).fillna("").astype(str).str.strip()
+    ).astype("string").fillna("").str.strip()
 
     movement_present = prior_count.ge(1) | movement_explanation.str.len().ge(15)
     movement_against = (
