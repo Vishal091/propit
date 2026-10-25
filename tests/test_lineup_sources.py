@@ -6,27 +6,27 @@ import pytest
 from src.data.lineup_sources import parse_rotowire_lineups
 
 
-def _side(team: str, status: str, players: list[tuple[str, str]]) -> str:
+def _side(side: str, team: str, status: str, players: list[tuple[str, str]]) -> str:
     items = "".join(
         f'<li><div class="lineup__pos">{position}</div><a title="{name}">{name}</a></li>'
         for position, name in players
     )
     return f"""
-    <div class="lineup__side is-{team.lower()}">
-      <a class="lineup__mteam is-{team.lower()} white"><span class="lineup__abbr">{team}</span></a>
+    <div class="lineup__side is-{side}">
+      <a class="lineup__mteam is-{side} white"><span class="lineup__abbr">{team}</span></a>
       <div class="lineup__status">{status}</div>
-      <ul class="lineup__list is-{team.lower()}">{items}</ul>
+      <ul class="lineup__list is-{side}">{items}</ul>
     </div>
     """
 
 
 @pytest.fixture
 def sample_lineup_html() -> str:
-    away = _side("visit", "Expected Lineup", [
+    away = _side("visit", "BOS", "Expected Lineup", [
         ("PG", "Jayson Tatum"), ("SG", "Derrick White"), ("SF", "Jaylen Brown"),
         ("PF", "Al Horford"), ("C", "Kristaps Porzingis"),
     ])
-    home = _side("home", "Confirmed Lineup", [
+    home = _side("home", "NYK", "Confirmed Lineup", [
         ("PG", "Jalen Brunson"), ("SG", "Josh Hart"), ("SF", "Mikal Bridges"),
         ("PF", "OG Anunoby"), ("C", "Karl-Anthony Towns"),
     ])
