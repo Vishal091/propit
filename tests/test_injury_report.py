@@ -94,6 +94,18 @@ def test_report_metadata_preserves_explicit_not_yet_submitted_teams():
     assert metadata["team_report_coverage_parsed"] is True
     assert metadata["teams_not_yet_submitted"] == ["NYK"]
     assert metadata["team_submission_markers_count"] == 1
+    assert metadata["team_submission_markers_resolved"] is True
+
+
+def test_unresolved_not_yet_submitted_marker_disables_team_coverage():
+    rows = [[
+        ["Date", "Time (ET)", "Game", "Team", "Player", "Status", "Injury/Illness"],
+        ["10/25/2026", "07:00 (ET)", "BOS@NYK", "", "", "", "NOT YET SUBMITTED"],
+    ]]
+    metadata = extract_team_submission_metadata(rows, [])
+
+    assert metadata["teams_not_yet_submitted"] == []
+    assert metadata["team_submission_markers_resolved"] is False
 
 
 def test_positioned_word_fallback_reconstructs_official_seven_columns():
