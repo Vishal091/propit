@@ -337,6 +337,16 @@ def api_refresh() -> dict[str, Any]:
     ])
 
 
+@app.post("/api/injury-report")
+def api_injury_report(request: GameDateRequest) -> dict[str, Any]:
+    """Fetch the latest official NBA injury-report PDF for the selected match date."""
+    try:
+        game_date = _validate_game_date(request.game_date)
+    except ValueError as exc:
+        return {"ok": False, "steps": [], "message": str(exc)}
+    return _run_steps([("scripts.import_nba_status", ["--game-date", game_date])])
+
+
 @app.post("/api/pregame-workflow")
 def api_pregame_workflow(request: GameDateRequest) -> dict[str, Any]:
     """Refresh lines, predict, and archive one snapshot for the selected snapshot date."""
