@@ -19,6 +19,11 @@ from src.data.seasons import current_season, recent_seasons
 from src.data.schedule import get_next_game_map
 from src.features.build import build_player_features, build_team_game_metrics, feature_columns
 from src.model.predict import Prediction, predict_one
+from src.model.prop_probability import (
+    calibrate_toward_market,
+    exceeds_probability_cap,
+    quarter_kelly_fraction,
+)
 from src.model.train import TrainedModel
 from src.market_comparison import (
     compare_market_rows,
@@ -47,12 +52,29 @@ def implied_probability(odds: float | int | None) -> float | None:
     return (1.0 / decimal) if decimal is not None else None
 
 
-def expected_profit_per_unit(probability: float | None, odds: float | int | None) -> float | None:
-    """Expected net profit on a 1-unit stake, not a guarantee of outcome."""
+def expected_profit_per_unit(
+    probability: float | None,
+    odds: float | int | None,
+    *,
+    p_push: float = 0.0,
+) -> float | None:
+    """Expected net profit per unit stake, including zero-profit pushes.
+
+    probability is the unconditional chance of winning; p_push is the
+    unconditional push chance. The remaining probability mass is a loss.
+    """
     decimal = american_to_decimal(odds)
     if probability is None or decimal is None:
         return None
-    return float(probability) * (decimal - 1.0) - (1.0 - float(probability))
+    try:
+        p_win = float(probability)
+        push = float(p_push)
+    except (TypeError, ValueError):
+        return None
+    if not np.isfinite(p_win) or not np.isfinite(push) or p_win < 0 or push < 0 or p_win + push > 1.000001:
+        return None
+    p_loss = max(0.0, 1.0 - p_win - push)
+    return p_win * (decimal - 1.0) - p_loss
 
 
 def _validate_model_feature_context(bundle: TrainedModel, target: str) -> None:
@@ -428,6 +450,7 @@ def _prediction_record(
     market_info = market_info or {}
     p_over = pred.p_over
     p_under = (1.0 - p_over) if p_over is not None else None
+    p_push = _number_or_none(pred.p_push) or 0.0
     no_vig_over, no_vig_under, no_vig_method = no_vig_probabilities(
         odds_over,
         odds_under,
@@ -435,8 +458,8 @@ def _prediction_record(
         bookmaker_under=market_info.get("bookmaker_under"),
         bookmaker=bookmaker,
     )
-    over_ev = expected_profit_per_unit(p_over, odds_over)
-    under_ev = expected_profit_per_unit(p_under, odds_under)
+    over_ev = expected_profit_per_unit(p_over * (1.0 - p_push), odds_over, p_push=p_push) if p_over is not None else None
+    under_ev = expected_profit_per_unit(p_under * (1.0 - p_push), odds_under, p_push=p_push) if p_under is not None else None
     return {
         "player_id": player_id, "player_name": player_name,
         "team": match_info.get("team") or player_team.get("team", ""),
@@ -450,6 +473,16 @@ def _prediction_record(
         "interval_80_high": round(pred.interval_80[1], 3),
         "model_p_over": round(p_over, 4) if p_over is not None else None,
         "model_p_under": round(p_under, 4) if p_under is not None else None,
+        "model_p_over_raw": round(p_over, 4) if p_over is not None else None,
+        "model_p_under_raw": round(p_under, 4) if p_under is not None else None,
+        "calibrated_p_over": None,
+        "calibrated_p_under": None,
+        "p_push": round(p_push, 5) if pred.p_push is not None else None,
+        "probability_distribution": pred.probability_distribution or "",
+        "minutes_projection_status": str(market_info.get("minutes_projection_status") or "ROLLING_PROXY_ONLY"),
+        "minutes_role_confirmed": str(market_info.get("minutes_role_confirmed") or "").strip().lower() in {"1", "true", "yes", "confirmed"},
+        "edge_explanation": str(market_info.get("edge_explanation") or "").strip(),
+        "movement_explanation": str(market_info.get("movement_explanation") or "").strip(),
         "p_over": round(p_over, 4) if p_over is not None else None,
         "actual_over": None,
         "odds_over_american": odds_over, "odds_under_american": odds_under,
@@ -484,14 +517,127 @@ def _prediction_record(
     }
 
 
+def _calibrate_market_probabilities(out: pd.DataFrame) -> pd.DataFrame:
+    """Create market-anchored probabilities and explicit red-flag gates.
+
+    Scored probabilities are conditional on a decisive result (pushes excluded).
+    Without a compatible two-sided no-vig market reference, the probability is
+    withheld from the scored output rather than treating an uncalibrated value
+    as decision-grade.
+    """
+    result = out.copy()
+    raw_over_values: list[float | None] = []
+    raw_under_values: list[float | None] = []
+    calibrated_over_values: list[float | None] = []
+    calibrated_under_values: list[float | None] = []
+    weights: list[float | None] = []
+    caps: list[float | None] = []
+    gates: list[str] = []
+    confidence_grades: list[str] = []
+    main_risks: list[str] = []
+    edge_over_values: list[float | None] = []
+    edge_under_values: list[float | None] = []
+    ev_over_values: list[float | None] = []
+    ev_under_values: list[float | None] = []
+
+    for row in result.to_dict(orient="records"):
+        raw_over = _number_or_none(row.get("model_p_over_raw", row.get("model_p_over")))
+        raw_under = _number_or_none(row.get("model_p_under_raw", row.get("model_p_under")))
+        market_over = _number_or_none(row.get("market_no_vig_p_over"))
+        market_under = _number_or_none(row.get("market_no_vig_p_under"))
+        if market_under is None and market_over is not None:
+            market_under = 1.0 - market_over
+        push = _number_or_none(row.get("p_push"))
+        push = max(0.0, min(1.0, push or 0.0))
+        availability_gate = str(row.get("availability_gate") or "UNVERIFIED").strip().upper()
+        minutes_status = str(row.get("minutes_projection_status") or "ROLLING_PROXY_ONLY").strip().upper()
+        minutes_confirmed = str(row.get("minutes_role_confirmed") or "").strip().lower() in {"1", "true", "yes", "confirmed"}
+        minutes_reliable = minutes_status == "VERIFIED_DISTRIBUTION" and minutes_confirmed
+        uncertain = availability_gate != "CLEAR" or not minutes_reliable
+        cap = 0.65 if uncertain else 0.72
+        weight = 0.50 if not uncertain else 0.25
+        calibrated: float | None = None
+        gate = "INSUFFICIENT_DATA"
+
+        if raw_over is not None and raw_under is not None and market_over is not None:
+            raw_total = raw_over + raw_under
+            raw_conditional_over = raw_over / raw_total if raw_total > 1e-9 else raw_over
+            raw_flag = exceeds_probability_cap(raw_conditional_over, uncertain=uncertain)
+            calibrated = calibrate_toward_market(
+                raw_conditional_over, market_over, model_weight=weight
+            )
+            calibrated_flag = exceeds_probability_cap(calibrated, uncertain=uncertain)
+            if raw_flag:
+                gate = "RAW_MODEL_CAP_RED_FLAG"
+            elif calibrated_flag:
+                gate = "CALIBRATED_CAP_RED_FLAG"
+            else:
+                gate = "CALIBRATED"
+
+        raw_over_values.append(raw_over)
+        raw_under_values.append(raw_under)
+        calibrated_over_values.append(calibrated)
+        calibrated_under_values.append((1.0 - calibrated) if calibrated is not None else None)
+        weights.append(weight if calibrated is not None else None)
+        caps.append(cap if raw_over is not None else None)
+        gates.append(gate)
+        confidence_grades.append("B" if gate == "CALIBRATED" and not uncertain else "C")
+        main_risks.append(
+            "Minutes are rolling-proxy estimates, not a distribution; confirm current rotation, starter status, and injury limits."
+            if not minutes_reliable else
+            "Check late lineup changes and closing market movement."
+        )
+        edge_over_values.append(calibrated - market_over if calibrated is not None and market_over is not None else None)
+        edge_under_values.append((1.0 - calibrated) - market_under if calibrated is not None and market_under is not None else None)
+
+        odds_over = _number_or_none(row.get("odds_over_american"))
+        odds_under = _number_or_none(row.get("odds_under_american"))
+        ev_over_values.append(
+            expected_profit_per_unit(calibrated * (1.0 - push), odds_over, p_push=push)
+            if calibrated is not None else None
+        )
+        ev_under_values.append(
+            expected_profit_per_unit((1.0 - calibrated) * (1.0 - push), odds_under, p_push=push)
+            if calibrated is not None else None
+        )
+
+    result["model_p_over_raw"] = raw_over_values
+    result["model_p_under_raw"] = raw_under_values
+    result["calibrated_p_over"] = calibrated_over_values
+    result["calibrated_p_under"] = calibrated_under_values
+    # model_p_* now mean calibrated P(side | no push); raw outputs remain for audit.
+    result["model_p_over"] = calibrated_over_values
+    result["model_p_under"] = calibrated_under_values
+    result["p_over"] = calibrated_over_values
+    result["p_under"] = calibrated_under_values
+    result["calibration_model_weight"] = weights
+    result["probability_cap"] = caps
+    result["probability_gate_status"] = gates
+    result["confidence_grade"] = confidence_grades
+    result["main_risk"] = main_risks
+    result["model_edge_over_vs_market"] = edge_over_values
+    result["model_edge_under_vs_market"] = edge_under_values
+    result["ev_over_per_1_unit"] = ev_over_values
+    result["ev_under_per_1_unit"] = ev_under_values
+    result["calibration_method"] = "market_shrinkage; pushes excluded from conditional probability"
+    return result
+
+
+def _documented_reason(value: Any) -> bool:
+    text = "" if value is None or pd.isna(value) else str(value).strip().lower()
+    return len(text) >= 20 and any(
+        term in text for term in ("injury", "role", "minutes", "matchup", "starter", "return", "out")
+    )
+
+
 def _decorate_and_rank_candidates(
     out: pd.DataFrame,
     *,
-    min_edge: float = 0.03,
-    min_ev: float = 0.02,
+    min_edge: float = 0.04,
+    min_ev: float = 0.0,
     min_probability: float = 0.53,
     max_data_age_days: int = 14,
-    max_market_age_hours: float = 12.0,
+    max_market_age_hours: float = 2.0,
     require_verified_availability: bool = False,
     today: pd.Timestamp | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -564,6 +710,12 @@ def _decorate_and_rank_candidates(
         elif is_placeholder:
             status, reason = "PLACEHOLDER_INPUT", "Replace the test/example source label with the real source or sportsbook where you checked the line and both prices."
             side = prob = market_prob = edge = ev = None
+        elif str(row.get("probability_gate_status") or "").upper() == "INSUFFICIENT_DATA":
+            status, reason = "INSUFFICIENT_DATA", "A compatible current two-sided no-vig market reference is missing; no calibrated probability is released."
+            side = prob = market_prob = edge = ev = None
+        elif str(row.get("probability_gate_status") or "").upper() in {"RAW_MODEL_CAP_RED_FLAG", "CALIBRATED_CAP_RED_FLAG"}:
+            status, reason = "PROBABILITY_CAP_REVIEW", "Model probability crosses the uncertainty-adjusted hard cap; investigate missing minutes, role, injury, or market information before betting."
+            side = prob = market_prob = edge = ev = None
         else:
             candidates = []
             over_ev = _number_or_none(row.get("ev_over_per_1_unit"))
@@ -584,14 +736,31 @@ def _decorate_and_rank_candidates(
                 side = prob = market_prob = edge = ev = None
             else:
                 ev, edge, prob, market_prob, side = max(candidates, key=lambda item: item[0])
-                if edge >= min_edge and ev >= min_ev and prob >= min_probability:
+                movement = _number_or_none(row.get("line_move_from_open"))
+                if movement is None:
+                    movement = _number_or_none(row.get("line_move_from_previous"))
+                movement_explanation = str(row.get("movement_explanation") or "").strip()
+                edge_explanation = row.get("edge_explanation")
+                prior_count = _number_or_none(row.get("market_prior_snapshot_count"))
+                if abs(edge) > 0.10 and not _documented_reason(edge_explanation):
+                    status = "EDGE_RED_FLAG"
+                    reason = f"Calibrated edge is {edge:.1%}, above the 10-point review threshold; a specific documented injury/role/minutes/matchup explanation is required."
+                elif is_public_snapshot and (prior_count is None or prior_count < 1) and not movement_explanation:
+                    status = "LINE_MOVEMENT_UNVERIFIED"
+                    reason = "No prior same-market snapshot exists, so movement against this side cannot be checked. Refresh the board again before considering the prop."
+                elif movement is not None and (
+                    (side == "OVER" and movement > 0.5) or (side == "UNDER" and movement < -0.5)
+                ) and len(movement_explanation) < 15:
+                    status = "LINE_MOVED_AGAINST_PICK"
+                    reason = f"Line movement ({movement:+.1f}) is more than half a point against {side}; document a specific reason or pass."
+                elif edge >= min_edge and ev > max(0.0, min_ev) and prob >= min_probability:
                     status = "SHORTLIST_CANDIDATE"
-                    reason = f"Best modeled side {side}: edge {edge:.1%}, EV {ev:.3f} units per unit staked; verify source and model calibration."
+                    reason = f"Calibrated {side}: edge {edge:.1%}, EV {ev:.3f} units per unit staked; minutes remain proxy-based and confidence is capped."
                     if availability_gate != "CLEAR":
-                        reason += f" Availability is {availability_gate}; manually confirm the official report before relying on this candidate. {availability_reason}"
+                        reason += f" Availability is {availability_gate}; a fresh official report is required. {availability_reason}"
                 else:
                     status = "BELOW_THRESHOLDS"
-                    reason = f"Best modeled side {side} missed filters (edge >= {min_edge:.1%}, EV >= {min_ev:.3f}, probability >= {min_probability:.1%})."
+                    reason = f"Best modeled side {side} missed filters (edge >= {min_edge:.1%}, EV > {max(0.0, min_ev):.3f}, probability >= {min_probability:.1%})."
         statuses.append(status)
         reasons.append(reason)
         sides.append(side)
@@ -613,8 +782,55 @@ def _decorate_and_rank_candidates(
     shortlist = shortlist.sort_values(
         ["selected_ev_per_1_unit", "selected_model_edge", "selected_model_probability"],
         ascending=[False, False, False], kind="stable",
-    ).reset_index(drop=True)
-    shortlist.insert(0, "rank", range(1, len(shortlist) + 1))
+    )
+    # No duplicate player-game exposure, max two picks per game, quarter-Kelly
+    # per pick (<=2% bankroll), and <=5% total daily bankroll exposure.
+    accepted: list[dict[str, Any]] = []
+    game_counts: dict[str, int] = {}
+    player_game_seen: set[str] = set()
+    daily_stake = 0.0
+    for row_index, row in shortlist.iterrows():
+        match_date = str(row.get("match_date") or "").strip()
+        team = str(row.get("team_abbreviation") or row.get("team") or "").strip().upper()
+        opponent = str(row.get("opponent_abbreviation") or row.get("opponent_team") or "").strip().upper()
+        if not match_date or not team or not opponent:
+            result.at[row_index, "shortlist_status"] = "GAME_CONTEXT_MISSING"
+            result.at[row_index, "shortlist_reason"] = "Scheduled date, team, and opponent are required to control game-level correlation."
+            continue
+        game_key = "|".join([match_date, *sorted([team, opponent])])
+        player_key = f"{game_key}|{row.get('player_id')}"
+        if game_counts.get(game_key, 0) >= 2:
+            result.at[row_index, "shortlist_status"] = "GAME_EXPOSURE_LIMIT"
+            result.at[row_index, "shortlist_reason"] = "Two higher-ranked props from this game already occupy the game exposure budget."
+            continue
+        if player_key in player_game_seen:
+            result.at[row_index, "shortlist_status"] = "CORRELATED_PLAYER_PROP"
+            result.at[row_index, "shortlist_reason"] = "Another prop for this player-game is already selected; avoid stacking correlated outcomes."
+            continue
+        side = str(row.get("recommended_side") or "").upper()
+        probability = _number_or_none(row.get("selected_model_probability"))
+        odds = _number_or_none(row.get("odds_over_american" if side == "OVER" else "odds_under_american"))
+        stake = quarter_kelly_fraction(probability, odds, max_fraction=0.02) if probability is not None else 0.0
+        stake = min(stake, max(0.0, 0.05 - daily_stake))
+        if stake <= 1e-6:
+            result.at[row_index, "shortlist_status"] = "DAILY_EXPOSURE_LIMIT"
+            result.at[row_index, "shortlist_reason"] = "Quarter-Kelly stake is zero or the 5% daily bankroll exposure budget is used."
+            continue
+        accepted_row = row.to_dict()
+        accepted_row["suggested_stake_fraction"] = round(stake, 5)
+        accepted_row["suggested_stake_percent"] = round(stake * 100.0, 2)
+        accepted_row["daily_exposure_after_pick_percent"] = round((daily_stake + stake) * 100.0, 2)
+        accepted.append(accepted_row)
+        game_counts[game_key] = game_counts.get(game_key, 0) + 1
+        player_game_seen.add(player_key)
+        daily_stake += stake
+    shortlist = pd.DataFrame(accepted)
+    if not shortlist.empty:
+        shortlist = shortlist.sort_values(
+            ["selected_ev_per_1_unit", "selected_model_edge", "selected_model_probability"],
+            ascending=[False, False, False], kind="stable",
+        ).reset_index(drop=True)
+        shortlist.insert(0, "rank", range(1, len(shortlist) + 1))
     return result, shortlist
 
 
@@ -624,14 +840,15 @@ def main() -> None:
     parser.add_argument("--output", type=Path, default=Path("predictions/latest.csv"))
     parser.add_argument("--shortlist-output", type=Path, default=Path("predictions/shortlist.csv"))
     parser.add_argument("--top", type=int, default=10, help="Maximum number of qualifying candidates to print")
-    parser.add_argument("--min-edge", type=float, default=0.03)
-    parser.add_argument("--min-ev", type=float, default=0.02)
+    parser.add_argument("--min-edge", type=float, default=0.04)
+    parser.add_argument("--min-ev", type=float, default=0.0, help="minimum expected value; candidates must remain strictly positive EV")
     parser.add_argument("--min-probability", type=float, default=0.53)
     parser.add_argument("--max-data-age-days", type=int, default=14)
-    parser.add_argument("--max-market-age-hours", type=float, default=12.0, help="reject market quotes captured earlier than this many hours ago")
+    parser.add_argument("--max-market-age-hours", type=float, default=2.0, help="reject market snapshots older than this many hours")
     parser.add_argument("--availability-file", type=Path, default=DEFAULT_AVAILABILITY_PATH, help="CSV of verified player statuses by player ID and scheduled match date")
     parser.add_argument("--max-availability-age-hours", type=float, default=DEFAULT_MAX_AGE_HOURS, help="treat older player status reports as stale")
-    parser.add_argument("--require-verified-availability", action="store_true", help="only shortlist rows with a fresh Available/Probable status in the availability CSV")
+    parser.add_argument("--require-verified-availability", dest="require_verified_availability", action="store_true", default=True, help="require a fresh Available/Probable status (default)")
+    parser.add_argument("--allow-unverified-availability", dest="require_verified_availability", action="store_false", help="relax availability gate for research only; never treat as confirmed")
     args = parser.parse_args()
     if args.top < 1:
         parser.error("--top must be at least 1")
@@ -772,6 +989,8 @@ def main() -> None:
     out = attach_availability(
         out, args.availability_file, max_age_hours=args.max_availability_age_hours,
     )
+    out = _calibrate_market_probabilities(out)
+    # Screen after calibration; thresholds and EV use calibrated probabilities.
     out, shortlist = _decorate_and_rank_candidates(
         out, min_edge=args.min_edge, min_ev=args.min_ev,
         min_probability=args.min_probability, max_data_age_days=args.max_data_age_days,
