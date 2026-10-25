@@ -66,3 +66,29 @@ def test_snapshot_upserts_current_file_but_appends_history(tmp_path):
     assert len(pd.read_csv(current_path)) == 2
     assert len(pd.read_csv(history_path)) == 4
     assert set(pd.read_csv(current_path)["reported_at_utc"]) == {"2026-10-25T15:00:00Z"}
+
+
+
+def test_partial_lineup_update_preserves_other_players_for_same_game(tmp_path):
+    input_path = tmp_path / "lineups_input.csv"
+    current_path = tmp_path / "player_lineups.csv"
+    history_path = tmp_path / "player_lineups_history.csv"
+    all_rows = _input()
+    all_rows.to_csv(input_path, index=False)
+    write_snapshot(
+        input_path, game_date="2026-10-25", source="trusted source",
+        output_path=current_path, history_path=history_path,
+        reported_at_utc="2026-10-25T14:30:00Z",
+    )
+    all_rows.iloc[[0]].to_csv(input_path, index=False)
+    write_snapshot(
+        input_path, game_date="2026-10-25", source="trusted source",
+        output_path=current_path, history_path=history_path,
+        reported_at_utc="2026-10-25T15:00:00Z",
+    )
+    current = pd.read_csv(current_path)
+    history = pd.read_csv(history_path)
+    assert len(current) == 2
+    assert len(history) == 3
+    white = current.loc[current["player_name"] == "Derrick White"].iloc[0]
+    assert white["reported_at_utc"] == "2026-10-25T14:30:00Z"
