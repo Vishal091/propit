@@ -196,3 +196,32 @@ def test_soccer_forecast_endpoint_returns_http_error_for_invalid_date_filter(tmp
     with pytest.raises(HTTPException) as error:
         dashboard.api_soccer_forecasts(date_from=start, date_to=end, competition_id=None, limit=50)
     assert error.value.status_code == 400
+
+
+
+def test_soccer_picks_endpoint_exposes_rejection_diagnostics_for_empty_results(tmp_path, monkeypatch):
+    patch_soccer_paths(monkeypatch, tmp_path)
+    monkeypatch.setattr(dashboard, "SOCCER_ODDS", tmp_path / "data" / "soccer" / "odds_snapshots.csv")
+    write_csv(dashboard.SOCCER_UPCOMING, [{
+        "competition_id": "openfootball:england:premierleague",
+        "competition_name": "Premier League",
+        "match_id": "thin-history",
+        "match_date": "2026-11-01",
+        "match_state": "scheduled",
+        "home_team": "Arsenal",
+        "away_team": "Chelsea",
+        "history_matches": 2,
+        "total_goals_line": 2.5,
+        "poisson_home_win": 0.55,
+        "poisson_draw": 0.25,
+        "poisson_away_win": 0.20,
+        "poisson_over": 0.52,
+        "poisson_under": 0.48,
+    }])
+
+    result = dashboard.api_soccer_picks()
+    assert result["available"] is False
+    assert result["diagnostics"]["input_rows"] == 1
+    assert result["diagnostics"]["rejection_counts"]["INSUFFICIENT_HISTORY"] == 1
+    assert "INSUFFICIENT_HISTORY=1" in result["message"]
+    assert "Evidence gates were not relaxed" in result["message"]
