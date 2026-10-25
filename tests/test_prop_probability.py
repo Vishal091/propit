@@ -71,7 +71,11 @@ def test_calibration_shrinks_toward_market_and_keeps_push_separate():
         "market_no_vig_p_under": 0.50,
         "p_push": 0.10,
         "availability_gate": "CLEAR",
-        "minutes_projection_status": "VERIFIED_DISTRIBUTION",
+        "minutes_projection_mean": 34.0,
+        "minutes_projection_std": 2.5,
+        "minutes_sample_size": 20,
+        "minutes_stable": True,
+        "lineup_gate": "CLEAR",
         "minutes_role_confirmed": True,
         "odds_over_american": -110,
         "odds_under_american": -110,
@@ -95,7 +99,11 @@ def test_raw_probability_cap_breach_is_not_silently_clipped():
         "market_no_vig_p_under": 0.50,
         "p_push": 0.0,
         "availability_gate": "CLEAR",
-        "minutes_projection_status": "ROLLING_PROXY_ONLY",
+        "minutes_projection_mean": 30.0,
+        "minutes_projection_std": 5.0,
+        "minutes_sample_size": 20,
+        "minutes_stable": False,
+        "lineup_gate": "UNVERIFIED",
         "minutes_role_confirmed": False,
         "odds_over_american": -110,
         "odds_under_american": -110,
@@ -138,3 +146,63 @@ def test_exposure_overlay_limits_game_to_two_distinct_players():
     assert shortlist["player_id"].nunique() == 2
     assert shortlist["suggested_stake_percent"].sum() <= 4.0
     assert (ranked["shortlist_status"] == "GAME_EXPOSURE_LIMIT").sum() == 2
+
+
+
+def test_minutes_monte_carlo_propagates_distribution_and_respects_pushes():
+    from src.model.prop_probability import estimate_prop_outcomes
+
+    tight = estimate_prop_outcomes(
+        mean=24.0, p10=16.0, p90=32.0, line=24.0, target="PTS",
+        fallback_std=5.0, minutes_mean=32.0, minutes_std=1.5,
+        simulations=10_000, seed=55,
+    )
+    volatile = estimate_prop_outcomes(
+        mean=24.0, p10=16.0, p90=32.0, line=24.0, target="PTS",
+        fallback_std=5.0, minutes_mean=32.0, minutes_std=8.0,
+        simulations=10_000, seed=55,
+    )
+    assert tight.p_push > 0
+    assert tight.p_over + tight.p_under + tight.p_push == pytest.approx(1.0)
+    assert volatile.estimated_std > tight.estimated_std
+    assert "minutes_mc10000" in volatile.distribution
+
+
+def test_minutes_monte_carlo_requires_ten_thousand_draws():
+    from src.model.prop_probability import estimate_prop_outcomes
+
+    with pytest.raises(ValueError, match="at least 10000"):
+        estimate_prop_outcomes(
+            mean=10.0, p10=5.0, p90=15.0, line=9.5, target="REB",
+            fallback_std=3.0, minutes_mean=25.0, minutes_std=5.0, simulations=9999,
+        )
+
+
+def test_missing_injury_or_minutes_history_withholds_calibrated_probability():
+    frame = pd.DataFrame([{
+        "model_p_over": 0.60,
+        "model_p_under": 0.40,
+        "model_p_over_raw": 0.60,
+        "model_p_under_raw": 0.40,
+        "market_no_vig_p_over": 0.50,
+        "market_no_vig_p_under": 0.50,
+        "p_push": 0.0,
+        "availability_gate": "UNVERIFIED",
+        "minutes_projection_mean": 30.0,
+        "minutes_projection_std": 5.0,
+        "minutes_sample_size": 20,
+        "minutes_stable": False,
+        "lineup_gate": "UNVERIFIED",
+        "minutes_role_confirmed": False,
+        "odds_over_american": -110,
+        "odds_under_american": -110,
+    }])
+    scored = _calibrate_market_probabilities(frame).iloc[0]
+    assert pd.isna(scored["calibrated_p_over"])
+    assert scored["probability_gate_status"] == "INSUFFICIENT_AVAILABILITY_DATA"
+
+    frame.loc[0, "availability_gate"] = "CLEAR"
+    frame.loc[0, "minutes_sample_size"] = 1
+    scored_minutes = _calibrate_market_probabilities(frame).iloc[0]
+    assert pd.isna(scored_minutes["calibrated_p_over"])
+    assert scored_minutes["probability_gate_status"] == "INSUFFICIENT_MINUTES_DATA"
