@@ -400,7 +400,7 @@ input[type=date],select{border:1px solid var(--line);border-radius:9px;backgroun
     try{
       var data=await request("/api/slate?view="+encodeURIComponent(slateView));
       lastSlate=data.rows||[];
-      $("slate-count-title").textContent=(data.count||0).toLocaleString()+" "+(slateView==="shortlist"?"shortlist candidates":slateView==="research"?"research rows (unverified)":"scored market rows");
+      $("slate-count-title").textContent=(data.count||0).toLocaleString()+" "+(slateView==="shortlist"?"shortlist candidates":slateView==="research"?"research rows · exploratory":"scored market rows");
       var headerCells=document.querySelectorAll("#section-slate table thead th");
       if(headerCells.length>=23){
         headerCells[10].textContent=slateView==="research"?"Research P.":"Model prob.";
@@ -410,7 +410,7 @@ input[type=date],select{border:1px solid var(--line);border-radius:9px;backgroun
         headerCells[15].textContent=slateView==="research"?"No stake":"Stake %";
       }
       $("slate-panel-subtitle").textContent=slateView==="research"
-        ?"Exploratory estimates only: 15% raw-model weight, 85% compatible no-vig market weight. Availability and lineup gates remain unresolved; no stakes are suggested."
+        ?(Number((data.diagnostics||{}).rows_with_research_estimates||0).toLocaleString()+" rows with a research probability; "+Number((data.diagnostics||{}).rows_with_research_ev||0).toLocaleString()+" rows with an EV estimate. "+String((data.diagnostics||{}).notice||"Research estimates are not qualified picks."))
         :"Probabilities remain experimental until validated against a chronological holdout.";
       renderSlate(lastSlate, data.diagnostics || null);
       if(slateView==="shortlist")renderOverview(lastSlate);
@@ -455,7 +455,15 @@ input[type=date],select{border:1px solid var(--line);border-radius:9px;backgroun
       var edgeValue=researchMode?num(r.research_selected_edge):num(r.selected_model_edge);
       var evValue=researchMode?num(r.research_selected_ev):num(r.selected_ev_per_1_unit);
       var stakeText=researchMode?"—":stakeText;
-      var screenStatus=researchMode?"RESEARCH ONLY":String(r.shortlist_status||r.probability_gate_status||"—");
+      var researchStatusCode=String(r.research_status||"");
+      var researchStatusLabels={
+        "RESEARCH_ESTIMATE_AVAILABLE":"RESEARCH · MARKET-SHRUNK",
+        "RAW_MODEL_ONLY":"RESEARCH · RAW ONLY",
+        "RESEARCH_PRICES_MISSING":"RESEARCH · NO PRICES",
+        "RESEARCH_PRICES_INVALID":"RESEARCH · INVALID PRICES",
+        "RESEARCH_MODEL_MISSING":"RESEARCH · NO MODEL"
+      };
+      var screenStatus=researchMode?(researchStatusLabels[researchStatusCode]||"RESEARCH ONLY"):String(r.shortlist_status||r.probability_gate_status||"—");
       var screenTitle=researchMode
         ?String(r.research_reason||"Research estimate unavailable.")+" Strict shortlist status: "+String(r.shortlist_status||r.probability_gate_status||"—")+". "+String(r.shortlist_reason||"")
         :String(r.shortlist_reason||"")+" "+String(r.main_risk||"");
