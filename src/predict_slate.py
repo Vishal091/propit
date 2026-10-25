@@ -491,9 +491,10 @@ def _build_minutes_context(
         injury_status = str(row.get("availability_status") or "UNKNOWN").upper()
         if availability_gate not in {"CLEAR", "REVIEW", "BLOCKED"}:
             injury_status = availability_gate
-        lineup_status = str(row.get("lineup_status") or "UNKNOWN").upper()
-        if lineup_gate != "CLEAR":
-            lineup_status = "UNKNOWN"
+        observed_lineup_status = str(row.get("lineup_status") or "UNKNOWN").upper()
+        # Projected roles remain visible for research, but the minutes model
+        # receives UNKNOWN until source-explicit confirmation passes the gate.
+        lineup_status = observed_lineup_status if lineup_gate == "CLEAR" else "UNKNOWN"
         availability_limit = _number_or_none(row.get("availability_minutes_limit"))
         lineup_limit = _number_or_none(row.get("minutes_limit"))
         known_limits = [value for value in (availability_limit, lineup_limit) if value is not None and 0 < value <= 48]
@@ -536,11 +537,15 @@ def _build_minutes_context(
             "availability_retrieved_at_utc": row.get("availability_retrieved_at_utc", ""),
             "minutes_limit": return_limit,
             "lineup_status": lineup_status,
+            "lineup_observed_status": observed_lineup_status,
             "lineup_gate": lineup_gate,
             "lineup_reason": row.get("lineup_reason", ""),
             "lineup_source": row.get("lineup_source", ""),
             "lineup_reported_at_utc": row.get("lineup_reported_at_utc", ""),
             "lineup_age_hours": row.get("lineup_age_hours"),
+            "lineup_confirmation_status": row.get("lineup_confirmation_status", "UNKNOWN"),
+            "lineup_confidence_label": row.get("lineup_confidence_label", ""),
+            "lineup_source_status": row.get("lineup_source_status", ""),
             "minutes_role_confirmed": bool(lineup_gate == "CLEAR" and lineup_status in {"STARTER", "BENCH"}),
         }
         # Only one schedule row per active player is expected. If duplicate roster
@@ -614,11 +619,15 @@ def _prediction_record(
         "minutes_stable": bool(market_info.get("minutes_stable", False)),
         "minutes_uncertainty_reason": str(market_info.get("minutes_uncertainty_reason") or ""),
         "lineup_status": str(market_info.get("lineup_status") or "UNKNOWN"),
+        "lineup_observed_status": str(market_info.get("lineup_observed_status") or market_info.get("lineup_status") or "UNKNOWN"),
         "lineup_gate": str(market_info.get("lineup_gate") or "UNVERIFIED"),
         "lineup_reason": str(market_info.get("lineup_reason") or ""),
         "lineup_source": str(market_info.get("lineup_source") or ""),
         "lineup_reported_at_utc": str(market_info.get("lineup_reported_at_utc") or ""),
         "lineup_age_hours": _number_or_none(market_info.get("lineup_age_hours")),
+        "lineup_confirmation_status": str(market_info.get("lineup_confirmation_status") or "UNKNOWN"),
+        "lineup_confidence_label": str(market_info.get("lineup_confidence_label") or ""),
+        "lineup_source_status": str(market_info.get("lineup_source_status") or ""),
         "availability_retrieved_at_utc": str(market_info.get("availability_retrieved_at_utc") or ""),
         "availability_minutes_limit": _number_or_none(market_info.get("availability_minutes_limit")),
         "minutes_role_confirmed": str(market_info.get("minutes_role_confirmed") or "").strip().lower() in {"1", "true", "yes", "confirmed"} or market_info.get("minutes_role_confirmed") is True,
