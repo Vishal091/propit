@@ -387,7 +387,7 @@ def _pending_confirmation_row(**overrides):
     return row
 
 
-def test_pending_confirmation_only_surfaces_positive_fresh_evidence_blocked_research_signals(tmp_path, monkeypatch):
+def test_pending_confirmation_prioritizes_positive_signals_and_labels_watch_only_rows(tmp_path, monkeypatch):
     from src import dashboard
 
     latest_path = tmp_path / "latest.csv"
@@ -418,14 +418,21 @@ def test_pending_confirmation_only_surfaces_positive_fresh_evidence_blocked_rese
 
     result = dashboard.api_pending_confirmation(limit=50)
 
-    assert result["count"] == 1
+    assert result["count"] == 3
     assert result["rows"][0]["player_name"] == "Test Player"
     assert result["rows"][0]["pending_rank"] == 1
+    assert result["rows"][0]["pending_label"] == "POSITIVE RESEARCH SIGNAL"
+    assert result["rows"][1]["player_name"] == "Negative EV"
+    assert result["rows"][1]["pending_label"] == "WATCH ONLY · EV NOT POSITIVE"
+    assert result["rows"][2]["player_name"] == "Low research probability"
+    assert result["rows"][2]["pending_label"] == "WATCH ONLY · BELOW PROBABILITY THRESHOLD"
     assert result["diagnostics"]["scored_rows"] == 6
     assert result["diagnostics"]["evidence_blocked_rows"] == 4
-    assert result["diagnostics"]["positive_research_signal_rows"] == 2
-    assert result["diagnostics"]["pending_rows"] == 1
-    assert "not qualified picks" in result["message"].lower()
+    assert result["diagnostics"]["positive_research_signal_rows"] == 1
+    assert result["diagnostics"]["watch_only_rows"] == 2
+    assert result["diagnostics"]["pending_rows"] == 3
+    assert result["diagnostics"]["filter_stage_counts"]["evidence_blocked"] == 4
+    assert "not qualified" in result["message"].lower()
 
 
 def test_pending_confirmation_requires_market_movement_evidence_and_excludes_placeholder_sources(tmp_path, monkeypatch):
@@ -462,4 +469,4 @@ def test_pending_confirmation_dashboard_has_separate_research_only_panel():
     assert 'id="pending-confirmation-panel"' in html
     assert 'id="pending-confirmation-table"' in html
     assert 'request("/api/pending-confirmation?limit=50")' in html
-    assert "These are leads to recheck, not qualified picks." in html
+    assert "watch-only rows tell you whether edge, EV, or research probability fell short" in html
