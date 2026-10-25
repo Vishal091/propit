@@ -140,6 +140,29 @@ def test_unlisted_player_on_team_marked_not_yet_submitted_stays_unverified(tmp_p
     assert "NOT YET SUBMITTED" in row["availability_reason"]
 
 
+def test_shortlist_explains_unlisted_status_is_not_explicitly_available(tmp_path):
+    attached = pd.DataFrame([{
+        **_row(),
+        "availability_status": "NOT_LISTED",
+        "availability_gate": "CLEAR",
+        "availability_reason": (
+            "No player-specific issue is listed in the fresh official report; "
+            "this is not an explicit Available designation."
+        ),
+        "availability_source": "https://official.nba.com/report.pdf",
+        "availability_reported_at_utc": "2026-10-25T14:30:00Z",
+        "availability_age_hours": 0.5,
+    }])
+    ranked, shortlist = _decorate_and_rank_candidates(
+        attached, min_edge=0, min_ev=0, min_probability=0,
+        require_verified_availability=True, today=pd.Timestamp("2026-10-25"),
+    )
+
+    assert ranked.iloc[0]["shortlist_status"] == "SHORTLIST_CANDIDATE"
+    assert len(shortlist) == 1
+    assert "not an explicit Available designation" in shortlist.iloc[0]["shortlist_reason"]
+
+
 def test_stale_report_is_not_treated_as_clear(tmp_path):
     path = tmp_path / "availability.csv"
     _write_snapshot(path, "Available", stamp="2026-10-24T01:00:00Z")
