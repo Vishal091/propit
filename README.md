@@ -64,7 +64,7 @@ Import a report for the player's **NBA-local scheduled match date** (not your co
 
 The command stores the current point-in-time player rows in `data/player_availability.csv`, appends to `data/player_availability_history.csv`, and logs the report URL/timestamp, retrieval time, parser diagnostics, and team submission markers in `data/injury_report_imports.csv`. It resolves IDs against the current NBA roster when that endpoint is available; unmatched rows can still match by normalized player name and team. If the official page does not link a suitable PDF or the table parser cannot parse player rows, the command fails without replacing the current snapshot.
 
-The dashboard's **Official NBA injury report** action does the same thing for the selected game date. The date picker is intentionally separate from the pregame snapshot date because one is an NBA-local event date and the other labels the local archive.
+The dashboard's **Official NBA injury report** action does the same thing for the selected game date. The one-click pregame workflow now refreshes the official injury report and lineup feed for the same NBA-local match date before refreshing markets, scoring the slate, and archiving it. Keep the injury-report and lineup date selectors aligned. The pregame snapshot date at the top is separate and labels the local archive, so it may differ from the NBA-local event date when your timezone crosses midnight. A successful refresh does not guarantee a non-empty strict shortlist: projected lineups and unverified/questionable availability remain blocked.
 
 ### Confirmed starter/bench and role snapshots
 
