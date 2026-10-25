@@ -20,7 +20,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from src.operations import append_audit_event, build_health_report, read_audit_events
-from src.soccer.insights import attach_market_odds, build_best_picks, build_calibration_report, canonical_top_five_league
+from src.soccer.insights import attach_market_odds, build_best_picks, build_calibration_report, canonical_top_five_league, diagnose_best_picks
 from src.soccer.odds import OddsProviderError, get_api_key, read_odds_snapshots
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -438,20 +438,41 @@ def api_soccer_picks(
     if end and "match_date" in frame.columns:
         dates = pd.to_datetime(frame["match_date"], errors="coerce")
         frame = frame[dates <= pd.Timestamp(end)]
+    forecast_rows = _records(frame)
+    diagnostics = diagnose_best_picks(
+        forecast_rows, min_history_matches=min_history_matches,
+        min_probability=min_probability,
+    )
     picks = build_best_picks(
-        _records(frame), min_history_matches=min_history_matches,
+        forecast_rows, min_history_matches=min_history_matches,
         min_probability=min_probability, limit=limit,
     )
     odds_frame = _read_csv(SOCCER_ODDS)
     picks = attach_market_odds(picks, _records(odds_frame))
     matched_odds = sum(bool(pick.get("odds_available")) for pick in picks)
+    if picks:
+        no_pick_message = ""
+    elif diagnostics["input_rows"] == 0:
+        no_pick_message = "No forecast rows match the selected date range. Generate forecasts for dates in that range."
+    else:
+        rejected = diagnostics["rejection_counts"]
+        reasons = ", ".join(
+            f"{code}={count}" for code, count in rejected.items() if count
+        )
+        no_pick_message = (
+            f"No qualifying picks from {diagnostics['input_rows']} forecast rows "
+            f"(minimum history {min_history_matches}, minimum model probability "
+            f"{min_probability:.0%}). Rejection counts: {reasons or 'none'}. "
+            "Evidence gates were not relaxed."
+        )
     return {
         "available": bool(picks), "count": len(picks), "rows": picks,
+        "diagnostics": diagnostics,
         "odds_snapshot_rows": int(len(odds_frame)), "picks_with_fresh_odds": matched_odds,
         "eligible_leagues": ["Premier League", "La Liga", "Bundesliga", "Serie A", "Ligue 1"],
         "min_history_matches": min_history_matches, "min_probability": min_probability,
         "method": "One strongest independent-Poisson market per fixture; ranked with a historical-sample support adjustment.",
-        "message": "No pick met the top-five-league, sample-history, and probability filters." if not picks else "",
+        "message": no_pick_message,
         "warning": (
             "Matched prices are experimental comparisons against same-book no-vig probabilities; the model has not been calibrated into a validated betting strategy. Check current market availability and jurisdiction."
             if matched_odds else
