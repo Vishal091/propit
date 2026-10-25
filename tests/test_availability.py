@@ -69,7 +69,7 @@ def test_fresh_available_report_is_matched_by_player_date_and_team(tmp_path):
 
 def test_out_report_blocks_the_market_from_shortlist(tmp_path):
     path = tmp_path / "availability.csv"
-    _write_snapshot(path, "Out")
+    _write_snapshot(path, "Out", stamp="2026-10-25T14:30:00Z")
     attached = attach_availability(
         pd.DataFrame([_row()]), path, now_utc="2026-10-25T15:00:00Z",
     )
@@ -84,7 +84,7 @@ def test_out_report_blocks_the_market_from_shortlist(tmp_path):
 
 def test_questionable_report_requires_review_and_is_not_shortlisted(tmp_path):
     path = tmp_path / "availability.csv"
-    _write_snapshot(path, "Questionable")
+    _write_snapshot(path, "Questionable", stamp="2026-10-25T14:30:00Z")
     attached = attach_availability(
         pd.DataFrame([_row()]), path, now_utc="2026-10-25T15:00:00Z",
     )
