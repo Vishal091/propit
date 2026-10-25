@@ -489,6 +489,59 @@ def _pending_confirmation_candidates(
     return result, diag
 
 
+@app.get("/api/slate")
+def api_slate(view: str = Query(default="shortlist", pattern="^(shortlist|all|research)$")) -> dict[str, Any]:
+    path = SHORTLIST if view == "shortlist" else LATEST
+    frame = _read_csv(path)
+    diagnostics: dict[str, Any] = {}
+    if view == "research" and not frame.empty:
+        if "research_selected_ev" in frame.columns:
+            ev_values = pd.to_numeric(frame["research_selected_ev"], errors="coerce")
+            edge_values = (
+                pd.to_numeric(frame["research_selected_edge"], errors="coerce")
+                if "research_selected_edge" in frame.columns
+                else pd.Series([float("nan")] * len(frame), index=frame.index, dtype="float64")
+            )
+            frame["_research_ev_sort"] = ev_values
+            frame["_research_edge_sort"] = edge_values
+            frame = frame.sort_values(
+                ["_research_ev_sort", "_research_edge_sort"],
+                ascending=[False, False], na_position="last", kind="stable",
+            ).drop(columns=["_research_ev_sort", "_research_edge_sort"])
+            research_probabilities = (
+                pd.to_numeric(frame["research_model_p_over"], errors="coerce")
+                if "research_model_p_over" in frame.columns
+                else pd.Series([float("nan")] * len(frame), index=frame.index, dtype="float64")
+            )
+            research_ev_values = (
+                pd.to_numeric(frame["research_selected_ev"], errors="coerce")
+                if "research_selected_ev" in frame.columns
+                else pd.Series([float("nan")] * len(frame), index=frame.index, dtype="float64")
+            )
+            available = int(research_probabilities.notna().sum())
+            with_ev = int(research_ev_values.notna().sum())
+            diagnostics = {
+                "scored_rows": int(len(frame)),
+                "rows_with_research_estimates": available,
+                "rows_without_research_estimates": int(len(frame) - available),
+                "rows_with_research_ev": with_ev,
+                "notice": "Research probabilities are raw when no compatible no-vig reference exists; otherwise they use 15% raw-model weight and 85% market weight. Edge/EV are withheld without a valid no-vig market and both side prices. Research rows never satisfy strict shortlist gates.",
+            }
+        else:
+            diagnostics = {
+                "scored_rows": int(len(frame)),
+                "rows_with_research_estimates": 0,
+                "rows_without_research_estimates": int(len(frame)),
+                "notice": "Research columns are not present in this saved snapshot. Click Refresh & score to regenerate predictions with the research view enabled.",
+            }
+    result = {"view": view, "count": int(len(frame)), "rows": _records(frame.head(500))}
+    if view == "shortlist" and frame.empty:
+        result["diagnostics"] = _shortlist_diagnostics(_read_csv(LATEST))
+    if diagnostics:
+        result["diagnostics"] = diagnostics
+    return result
+
+
 @app.get("/api/pending-confirmation")
 def api_pending_confirmation(limit: int = Query(default=50, ge=1, le=200)) -> dict[str, Any]:
     """Return research-only leads held out of the strict shortlist by evidence gates."""
