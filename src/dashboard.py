@@ -437,26 +437,34 @@ def api_pregame_workflow(request: PregameWorkflowRequest) -> dict[str, Any]:
         nba_game_date = _validate_game_date(request.nba_game_date)
     except ValueError as exc:
         return {"ok": False, "steps": [], "message": str(exc)}
-    if _date_already_archived(snapshot_date):
-        return {
-            "ok": False, "steps": [],
-            "message": f"A snapshot dated {snapshot_date} is already in data/prediction_history.csv. No files were changed. Use Refresh Slate for a new view, or intentionally archive another snapshot from the command line.",
-        }
+    snapshot_already_archived = _date_already_archived(snapshot_date)
+    # A duplicate archive must prevent only the append-only history write. It must
+    # not prevent refreshing current injuries, lineups, odds, and the slate itself.
     plan = [
         ("scripts.import_nba_status", ["--game-date", nba_game_date]),
         ("scripts.fetch_lineups", ["--game-date", nba_game_date]),
         ("scripts.fetch_public_props", []),
         ("src.predict_slate", ["--lines", "data/prop_lines_public.csv", "--top", "10"]),
-        ("scripts.archive_predictions", ["--game-date", snapshot_date]),
     ]
+    if not snapshot_already_archived:
+        plan.append(("scripts.archive_predictions", ["--game-date", snapshot_date]))
     result = _run_steps(plan)
     if result["ok"]:
-        result["message"] = (
-            f"Availability and lineup sources refreshed for NBA-local game date {nba_game_date}; "
-            f"public markets scored and pregame snapshot archived for snapshot date {snapshot_date}. "
-            "Expected/projected lineups remain unverified and cannot pass the strict shortlist gate; "
-            "check the row-level screening diagnostics before relying on any candidate."
-        )
+        if snapshot_already_archived:
+            result["message"] = (
+                f"Availability and lineup sources refreshed for NBA-local game date {nba_game_date}; "
+                f"public markets scored. The snapshot dated {snapshot_date} already exists, so archive "
+                "creation was skipped; no duplicate history row was added. "
+                "Expected/projected lineups remain unverified and cannot pass the strict shortlist gate; "
+                "check the row-level screening diagnostics before relying on any candidate."
+            )
+        else:
+            result["message"] = (
+                f"Availability and lineup sources refreshed for NBA-local game date {nba_game_date}; "
+                f"public markets scored and pregame snapshot archived for snapshot date {snapshot_date}. "
+                "Expected/projected lineups remain unverified and cannot pass the strict shortlist gate; "
+                "check the row-level screening diagnostics before relying on any candidate."
+            )
     return result
 
 
