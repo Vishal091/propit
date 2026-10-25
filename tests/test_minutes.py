@@ -37,6 +37,7 @@ def test_projection_uses_only_games_before_target_date():
 
 def test_early_season_projection_blends_prior_season_70_30():
     prior = _history([30] * 20, season="2024-25")
+    prior["GAME_DATE"] = pd.date_range("2024-11-01", periods=20, freq="7D")
     current = _history([20, 22, 24], season="2025-26")
     current["GAME_DATE"] = pd.date_range("2025-10-25", periods=3, freq="2D")
     history = pd.concat([prior, current], ignore_index=True).sort_values("GAME_DATE")
