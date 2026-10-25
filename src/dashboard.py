@@ -347,6 +347,19 @@ def api_injury_report(request: GameDateRequest) -> dict[str, Any]:
     return _run_steps([("scripts.import_nba_status", ["--game-date", game_date])])
 
 
+@app.post("/api/lineups")
+def api_lineups(request: GameDateRequest) -> dict[str, Any]:
+    """Fetch lineup projections/explicit confirmations, then rebuild the current slate."""
+    try:
+        game_date = _validate_game_date(request.game_date)
+    except ValueError as exc:
+        return {"ok": False, "steps": [], "message": str(exc)}
+    return _run_steps([
+        ("scripts.fetch_lineups", ["--game-date", game_date]),
+        ("src.predict_slate", ["--lines", "data/prop_lines_public.csv", "--top", "10"]),
+    ])
+
+
 @app.post("/api/pregame-workflow")
 def api_pregame_workflow(request: GameDateRequest) -> dict[str, Any]:
     """Refresh lines, predict, and archive one snapshot for the selected snapshot date."""
