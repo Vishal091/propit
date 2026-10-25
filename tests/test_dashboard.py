@@ -170,6 +170,37 @@ def test_automated_lineup_dashboard_action_rejects_invalid_date(monkeypatch):
     assert called == []
 
 
+def test_empty_shortlist_returns_reason_counts_from_scored_markets(tmp_path, monkeypatch):
+    from src import dashboard
+
+    latest_path = tmp_path / "latest.csv"
+    shortlist_path = tmp_path / "shortlist.csv"
+    pd.DataFrame({
+        "player_name": ["Player A", "Player B", "Player C"],
+        "shortlist_status": ["LINEUP_UNVERIFIED", "LINEUP_UNVERIFIED", "AVAILABILITY_REVIEW"],
+        "shortlist_reason": [
+            "Strict mode requires a fresh confirmed lineup.",
+            "Strict mode requires a fresh confirmed lineup.",
+            "Player is questionable; verify near tip-off.",
+        ],
+    }).to_csv(latest_path, index=False)
+    pd.DataFrame(columns=["player_name", "shortlist_status"]).to_csv(shortlist_path, index=False)
+    monkeypatch.setattr(dashboard, "LATEST", latest_path)
+    monkeypatch.setattr(dashboard, "SHORTLIST", shortlist_path)
+
+    result = dashboard.api_slate(view="shortlist")
+
+    assert result["count"] == 0
+    assert result["rows"] == []
+    assert result["diagnostics"]["scored_rows"] == 3
+    assert result["diagnostics"]["status_counts"][0] == {
+        "status": "LINEUP_UNVERIFIED",
+        "count": 2,
+        "reason": "Strict mode requires a fresh confirmed lineup.",
+    }
+    assert result["diagnostics"]["status_counts"][1]["status"] == "AVAILABILITY_REVIEW"
+
+
 def test_official_injury_report_dashboard_action_rejects_invalid_date(monkeypatch):
     from src import dashboard
 
