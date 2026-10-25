@@ -1067,6 +1067,13 @@ def main() -> None:
         opponent_team_metrics["TEAM_ID"].nunique() if not opponent_team_metrics.empty else 0,
     )
     log.info("preparing next-game features for %s candidate active players", len(active_players))
+    minutes_context = _build_minutes_context(
+        games, active_players, player_teams, next_games, team_id_by_abbreviation,
+        availability_file=args.availability_file,
+        lineups_file=args.lineups_file,
+        max_availability_age_hours=args.max_availability_age_hours,
+        max_lineup_age_hours=args.max_lineup_age_hours,
+    )
     feature_lookup = _build_latest_features(
         games, active_players, player_teams, next_games,
         opponent_team_metrics, team_id_by_abbreviation,
@@ -1103,7 +1110,20 @@ def main() -> None:
             provided_name = row.get("player_name")
             display_name = str(provided_name).strip() if provided_name is not None and not pd.isna(provided_name) and str(provided_name).strip() else player_name
             line = float(row["line"])
-            pred = predict_one(feature_row, line=line, target=target, bundle=bundles[target])
+            player_minutes = minutes_context.get(player_id, {})
+            minute_mean = _number_or_none(player_minutes.get("minutes_projection_mean"))
+            minute_std = _number_or_none(player_minutes.get("minutes_projection_std"))
+            minute_sample = _number_or_none(player_minutes.get("minutes_sample_size")) or 0
+            simulation_seed = (
+                player_id * 1_000_003 + int(round(line * 100))
+                + sum(ord(ch) for ch in target)
+            ) % (2**32)
+            pred = predict_one(
+                feature_row, line=line, target=target, bundle=bundles[target],
+                minutes_mean=minute_mean if minute_sample >= 3 else None,
+                minutes_std=minute_std if minute_sample >= 3 else None,
+                simulation_seed=simulation_seed,
+            )
             odds_over = _number_or_none(row.get("odds_over"))
             odds_under = _number_or_none(row.get("odds_under"))
             bookmaker_value = row.get("bookmaker")
@@ -1111,18 +1131,22 @@ def main() -> None:
             line_source = "public_web_import" if bookmaker.casefold().startswith(("probetrics public board", "flash odds public board")) else "user_supplied"
             team_meta = player_teams.get(player_id, {})
             match_info = _next_match_for_player(player_id, player_teams, next_games, row, team_id_by_abbreviation)
+            market_info = dict(row)
+            market_info.update(player_minutes)
             records.append(_prediction_record(
                 player_id, display_name, target, last_game_date, pred,
-                line_source, odds_over, odds_under, bookmaker, team_meta, match_info, row,
+                line_source, odds_over, odds_under, bookmaker, team_meta, match_info, market_info,
             ))
     else:
         for (player_id, target), (feature_row, player_name, last_game_date) in sorted(feature_lookup.items()):
+            player_minutes = minutes_context.get(player_id, {})
             pred = predict_one(feature_row, line=None, target=target, bundle=bundles[target])
             team_meta = player_teams.get(player_id, {})
             match_info = _next_match_for_player(player_id, player_teams, next_games, team_id_by_abbreviation=team_id_by_abbreviation)
             records.append(_prediction_record(
                 player_id, player_name, target, last_game_date, pred,
                 "not_supplied", player_team=team_meta, match_info=match_info,
+                market_info=player_minutes,
             ))
     if not records:
         raise RuntimeError("No predictions produced. Confirm input player IDs/names are present in available history.")
