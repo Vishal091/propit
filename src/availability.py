@@ -1,8 +1,8 @@
-"""Conservative, point-in-time player-availability checks for NBA prop rows.
+"""Conservative, point-in-time availability matching for NBA prop rows.
 
-PropIt does not scrape or infer injuries. Feed this module a status snapshot
-that was checked against the official NBA injury report or a trusted source.
-Every row is matched to a specific player and scheduled match date.
+Availability is matched by exact scheduled date and team, using player ID first
+and a normalized player name as a fallback for official injury reports whose
+name format differs from the NBA roster. A missing row is never treated as active.
 """
 from __future__ import annotations
 
@@ -11,43 +11,29 @@ from typing import Any
 
 import pandas as pd
 
+from src.player_identity import normalize_player_name
+
 DEFAULT_AVAILABILITY_PATH = Path("data/player_availability.csv")
-DEFAULT_MAX_AGE_HOURS = 6.0
-
+DEFAULT_MAX_AGE_HOURS = 2.0
 OUTPUT_COLUMNS = (
-    "availability_status",
-    "availability_gate",
-    "availability_reason",
-    "availability_source",
-    "availability_reported_at_utc",
-    "availability_age_hours",
+    "availability_status", "availability_gate", "availability_reason",
+    "availability_source", "availability_reported_at_utc", "availability_age_hours",
+    "availability_retrieved_at_utc", "availability_minutes_limit",
 )
-
 _STATUS_ALIASES = {
-    "AVAILABLE": "AVAILABLE",
-    "ACTIVE": "AVAILABLE",
-    "PROBABLE": "PROBABLE",
-    "LIKELY TO PLAY": "PROBABLE",
-    "QUESTIONABLE": "QUESTIONABLE",
-    "GTD": "QUESTIONABLE",
-    "GAME TIME DECISION": "QUESTIONABLE",
-    "GAME-TIME DECISION": "QUESTIONABLE",
-    "DOUBTFUL": "DOUBTFUL",
-    "OUT": "OUT",
-    "INACTIVE": "INACTIVE",
-    "SUSPENDED": "SUSPENDED",
-    "REST": "OUT",
-    "WILL NOT PLAY": "OUT",
-    "NOT PLAYING": "OUT",
-    "UNKNOWN": "UNKNOWN",
-    "": "UNKNOWN",
+    "AVAILABLE": "AVAILABLE", "ACTIVE": "AVAILABLE", "PROBABLE": "PROBABLE",
+    "LIKELY TO PLAY": "PROBABLE", "QUESTIONABLE": "QUESTIONABLE", "GTD": "QUESTIONABLE",
+    "GAME TIME DECISION": "QUESTIONABLE", "GAME-TIME DECISION": "QUESTIONABLE",
+    "DOUBTFUL": "DOUBTFUL", "OUT": "OUT", "INACTIVE": "INACTIVE",
+    "SUSPENDED": "SUSPENDED", "REST": "OUT", "WILL NOT PLAY": "OUT",
+    "NOT PLAYING": "OUT", "NOT WITH TEAM": "OUT", "UNKNOWN": "UNKNOWN", "": "UNKNOWN",
 }
 _BLOCKED_STATUSES = {"OUT", "INACTIVE", "SUSPENDED"}
 _REVIEW_STATUSES = {"QUESTIONABLE", "DOUBTFUL"}
 
 
 def normalize_status(value: Any) -> str:
-    """Return a canonical report status without guessing unknown values."""
+    """Return a canonical status without guessing an unfamiliar label."""
     if value is None or pd.isna(value):
         return "UNKNOWN"
     raw = " ".join(str(value).strip().upper().replace("_", " ").split())
@@ -55,9 +41,7 @@ def normalize_status(value: Any) -> str:
 
 
 def _text(value: Any) -> str:
-    if value is None or pd.isna(value):
-        return ""
-    return str(value).strip()
+    return "" if value is None or pd.isna(value) else str(value).strip()
 
 
 def _player_id(value: Any) -> str:
@@ -72,9 +56,7 @@ def _player_id(value: Any) -> str:
 
 def _date_key(value: Any) -> str:
     parsed = pd.to_datetime(value, errors="coerce")
-    if pd.isna(parsed):
-        return ""
-    return parsed.date().isoformat()
+    return "" if pd.isna(parsed) else parsed.date().isoformat()
 
 
 def _gate_for_status(status: str) -> str:
@@ -94,13 +76,7 @@ def attach_availability(
     now_utc: str | pd.Timestamp | None = None,
     max_age_hours: float = DEFAULT_MAX_AGE_HOURS,
 ) -> pd.DataFrame:
-    """Attach a fresh report for each exact player/match date, or mark unverified.
-
-    Expected CSV fields: player_id, match_date, status, reported_at_utc.
-    Optional fields: team_abbreviation, reason, source. Stale or undated reports
-    are never treated as current availability. Missing files produce explicit
-    UNVERIFIED rows so the caller can show the gap instead of assuming healthy.
-    """
+    """Attach the freshest exact player/date/team availability snapshot."""
     if max_age_hours < 0:
         raise ValueError("max_age_hours must be non-negative")
     result = rows.copy()
@@ -114,32 +90,33 @@ def attach_availability(
     if pd.isna(observed_at):
         raise ValueError("now_utc must be a valid UTC timestamp")
 
+    source_rows: list[dict[str, Any]] = []
     file_path = Path(path)
-    snapshots: dict[tuple[str, str, str], dict[str, Any]] = {}
     if file_path.exists():
         try:
             source = pd.read_csv(file_path, dtype={"player_id": "string"})
         except (OSError, pd.errors.ParserError, UnicodeDecodeError) as exc:
             raise ValueError(f"could not read availability CSV {file_path}: {exc}") from exc
         source.columns = [str(column).strip().lower() for column in source.columns]
-        required = {"player_id", "match_date", "status", "reported_at_utc"}
+        required = {"match_date", "status", "reported_at_utc"}
         missing = required - set(source.columns)
         if missing:
-            raise ValueError(
-                f"{file_path} is missing required availability columns: {', '.join(sorted(missing))}"
-            )
-        for optional in ("team_abbreviation", "reason", "source"):
+            raise ValueError(f"{file_path} is missing required availability columns: {', '.join(sorted(missing))}")
+        if "player_id" not in source and "player_name" not in source:
+            raise ValueError(f"{file_path} needs player_id or player_name")
+        for optional in ("player_id", "player_name", "team_abbreviation", "reason", "source", "minutes_limit", "retrieved_at_utc"):
             if optional not in source:
                 source[optional] = ""
-        source["_player_key"] = source["player_id"].map(_player_id)
+        source["_player_key"] = source["player_id"].map(_player_id) if "player_id" in source else ""
+        source["_name_key"] = source["player_name"].map(normalize_player_name) if "player_name" in source else ""
         source["_date_key"] = source["match_date"].map(_date_key)
         source["_team_key"] = source["team_abbreviation"].map(lambda value: _text(value).upper())
         source["_reported"] = pd.to_datetime(source["reported_at_utc"], utc=True, errors="coerce")
-        source = source.loc[source["_player_key"].ne("") & source["_date_key"].ne("")].copy()
+        source = source.loc[
+            source["_date_key"].ne("") & (source["_player_key"].ne("") | source["_name_key"].ne(""))
+        ].copy()
         source = source.sort_values("_reported", na_position="first", kind="stable")
-        for record in source.to_dict(orient="records"):
-            key = (record["_player_key"], record["_date_key"], record["_team_key"])
-            snapshots[key] = record
+        source_rows = source.to_dict(orient="records")
 
     statuses: list[str] = []
     gates: list[str] = []
@@ -147,31 +124,38 @@ def attach_availability(
     sources: list[str] = []
     timestamps: list[str] = []
     ages: list[float | None] = []
+    retrieved_values: list[str] = []
+    limits: list[float | None] = []
 
     for row in result.to_dict(orient="records"):
         pid = _player_id(row.get("player_id"))
         game_date = _date_key(row.get("match_date"))
+        name = normalize_player_name(row.get("player_name"))
         team = _text(row.get("team_abbreviation")).upper()
-        exact = snapshots.get((pid, game_date, team)) if pid and game_date and team else None
-        if exact is None and pid and game_date:
-            # Team is optional in manual files; never match a conflicting team.
-            possible = [
-                value for (source_pid, source_date, source_team), value in snapshots.items()
-                if source_pid == pid and source_date == game_date and (not source_team or not team or source_team == team)
-            ]
-            if possible:
-                exact = max(
-                    possible,
-                    key=lambda value: value.get("_reported") if pd.notna(value.get("_reported")) else pd.Timestamp.min.tz_localize("UTC"),
-                )
+        matches = [
+            candidate for candidate in source_rows
+            if candidate.get("_date_key") == game_date
+            and (not team or not candidate.get("_team_key") or candidate.get("_team_key") == team)
+            and (
+                (pid and candidate.get("_player_key") == pid)
+                or (name and candidate.get("_name_key") == name)
+            )
+        ]
+        # Prefer a player-ID match over a name-only match; within that group use
+        # the newest report timestamp. Conflicting teams never match.
+        if pid and any(item.get("_player_key") == pid for item in matches):
+            matches = [item for item in matches if item.get("_player_key") == pid]
+        exact = matches[-1] if matches else None
 
         if exact is None:
             statuses.append("UNKNOWN")
             gates.append("UNVERIFIED")
-            reasons.append("No availability record matched this player and scheduled match date.")
+            reasons.append("No availability record matched this player, team, and scheduled match date.")
             sources.append("")
             timestamps.append("")
             ages.append(None)
+            retrieved_values.append("")
+            limits.append(None)
             continue
 
         status = normalize_status(exact.get("status"))
@@ -182,21 +166,25 @@ def attach_availability(
             gate = "STALE"
             reason = "Availability record has no valid report timestamp; refresh before relying on it."
         else:
-            age = max(0.0, (observed_at - reported).total_seconds() / 3600.0)
-            if reported > observed_at + pd.Timedelta(minutes=5) or age > max_age_hours:
+            age = (observed_at - reported).total_seconds() / 3600.0
+            if age < -5 / 60 or age > max_age_hours:
                 gate = "STALE"
-                reason = f"Availability report is stale ({age:.1f} hours old; limit {max_age_hours:.1f} hours)."
+                reason = f"Availability report is {age:.1f} hours old; limit is {max_age_hours:.1f} hours."
             else:
                 gate = _gate_for_status(status)
                 reason = _text(exact.get("reason")) or f"Latest matched report status: {status}."
                 if gate == "UNVERIFIED":
-                    reason = f"Unrecognized or missing status in the report: {_text(exact.get('status')) or '(blank)'}."
+                    reason = f"Unrecognized or missing status in report: {_text(exact.get('status')) or '(blank)'}."
+        limit_value = pd.to_numeric(pd.Series([exact.get("minutes_limit")]), errors="coerce").iloc[0]
+        limit = float(limit_value) if pd.notna(limit_value) and 0 < float(limit_value) <= 48 else None
         statuses.append(status)
         gates.append(gate)
         reasons.append(reason)
         sources.append(_text(exact.get("source")))
         timestamps.append(reported_text)
-        ages.append(round(age, 2) if age is not None else None)
+        ages.append(round(max(0.0, age), 2) if age is not None else None)
+        retrieved_values.append(_text(exact.get("retrieved_at_utc")))
+        limits.append(limit)
 
     result["availability_status"] = statuses
     result["availability_gate"] = gates
@@ -204,4 +192,6 @@ def attach_availability(
     result["availability_source"] = sources
     result["availability_reported_at_utc"] = timestamps
     result["availability_age_hours"] = ages
+    result["availability_retrieved_at_utc"] = retrieved_values
+    result["availability_minutes_limit"] = limits
     return result

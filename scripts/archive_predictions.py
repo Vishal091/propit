@@ -18,7 +18,12 @@ COLUMNS = [
     "game_date", "snapshot_date", "snapshot_at_utc",
     "player_id", "player_name", "team", "team_abbreviation",
     "match_date", "opponent_team", "opponent_abbreviation", "matchup",
-    "target", "line", "p_over", "actual_over", "actual_stat",
+    "target", "line", "p_over", "model_p_over_raw", "model_p_under_raw",
+    "market_shrunk_p_over", "market_shrunk_p_under", "selected_model_probability",
+    "selected_market_no_vig_probability", "selected_model_edge", "selected_ev_per_1_unit",
+    "recommended_side", "shortlist_status", "shortlist_reason", "probability_gate_status",
+    "probability_cap", "calibration_model_weight", "calibration_method", "confidence_grade", "main_risk",
+    "p_push", "probability_distribution", "actual_over", "actual_stat",
     "odds_over_american", "odds_under_american", "bookmaker", "bookmaker_over", "bookmaker_under",
     "line_source", "market_source", "market_snapshot_at_utc", "prior_snapshot_at_utc",
     "opening_line", "source_line_move", "previous_line", "previous_odds_over", "previous_odds_under",
@@ -31,7 +36,17 @@ COLUMNS = [
     "best_over_odds_american", "best_over_bookmaker", "best_under_odds_american", "best_under_bookmaker",
     "market_snapshot_age_hours",
     "availability_status", "availability_gate", "availability_reason", "availability_source",
-    "availability_reported_at_utc", "availability_age_hours", "settlement_status",
+    "availability_reported_at_utc", "availability_age_hours", "availability_retrieved_at_utc",
+    "availability_minutes_limit", "lineup_status", "lineup_gate", "lineup_reason", "lineup_source",
+    "lineup_reported_at_utc", "lineup_age_hours",
+    "minutes_projection_mean", "minutes_projection_std", "minutes_projection_p10", "minutes_projection_p50",
+    "minutes_projection_p90", "minutes_last5_mean", "minutes_last10_mean", "minutes_last20_mean",
+    "minutes_season_mean", "minutes_previous_season_mean", "minutes_trend_last5_vs_20",
+    "minutes_sample_size", "minutes_current_season_games", "minutes_role_change_detected",
+    "minutes_stable", "minutes_projection_status", "minutes_uncertainty_reason", "minutes_role_confirmed",
+    "closing_line", "closing_odds_over_american", "closing_odds_under_american", "closing_snapshot_at_utc",
+    "clv_line", "clv_price_over", "clv_price_under",
+    "settlement_status",
 ]
 
 
@@ -45,9 +60,14 @@ def prepare_archive_rows(predictions: pd.DataFrame, game_date: str, snapshot_at_
     missing = required - set(predictions.columns)
     if missing:
         raise ValueError(f"prediction file is missing columns: {', '.join(sorted(missing))}")
-    probability_col = "p_over" if "p_over" in predictions.columns else "model_p_over"
-    if probability_col not in predictions:
-        raise ValueError("prediction file must contain p_over or model_p_over")
+    # p_over remains the raw-model column consumed by the chronological
+    # isotonic calibrator. Store the live market-shrunk probability separately.
+    probability_col = next(
+        (column for column in ("model_p_over_raw", "p_over", "model_p_over") if column in predictions.columns),
+        None,
+    )
+    if probability_col is None:
+        raise ValueError("prediction file must contain model_p_over_raw, p_over, or model_p_over")
 
     out = pd.DataFrame(index=predictions.index)
     out["snapshot_date"] = game_day
@@ -60,7 +80,11 @@ def prepare_archive_rows(predictions: pd.DataFrame, game_date: str, snapshot_at_
         "market_snapshot_at_utc", "prior_snapshot_at_utc", "market_no_vig_method",
         "best_over_bookmaker", "best_under_bookmaker",
         "availability_status", "availability_gate", "availability_reason", "availability_source",
-        "availability_reported_at_utc",
+        "availability_reported_at_utc", "availability_retrieved_at_utc",
+        "lineup_status", "lineup_gate", "lineup_reason", "lineup_source", "lineup_reported_at_utc",
+        "minutes_projection_status", "minutes_uncertainty_reason", "probability_gate_status",
+        "calibration_method", "confidence_grade", "main_risk", "recommended_side",
+        "shortlist_status", "shortlist_reason", "probability_distribution",
     )
     for column in string_columns:
         out[column] = predictions[column].fillna("").astype(str).str.strip() if column in predictions else ""
@@ -77,6 +101,34 @@ def prepare_archive_rows(predictions: pd.DataFrame, game_date: str, snapshot_at_
     out["target"] = predictions["target"].astype(str).str.upper().str.strip()
     out["line"] = pd.to_numeric(predictions["line"], errors="coerce")
     out["p_over"] = pd.to_numeric(predictions[probability_col], errors="coerce")
+    out["model_p_over_raw"] = pd.to_numeric(predictions.get("model_p_over_raw", out["p_over"]), errors="coerce")
+    out["model_p_under_raw"] = pd.to_numeric(predictions.get("model_p_under_raw", pd.Series(index=predictions.index, dtype=float)), errors="coerce")
+    # In the current slate pipeline calibrated_p_* is the market-shrunk decision
+    # probability, kept separate from raw inputs for honest future backtesting.
+    out["market_shrunk_p_over"] = pd.to_numeric(predictions.get("calibrated_p_over", predictions.get("model_p_over")), errors="coerce")
+    out["market_shrunk_p_under"] = pd.to_numeric(predictions.get("calibrated_p_under", predictions.get("model_p_under")), errors="coerce")
+    for column in ("selected_model_probability", "selected_market_no_vig_probability", "selected_model_edge",
+                   "selected_ev_per_1_unit", "probability_cap", "calibration_model_weight", "p_push",
+                   "minutes_projection_mean", "minutes_projection_std", "minutes_projection_p10",
+                   "minutes_projection_p50", "minutes_projection_p90", "minutes_last5_mean",
+                   "minutes_last10_mean", "minutes_last20_mean", "minutes_season_mean",
+                   "minutes_previous_season_mean", "minutes_trend_last5_vs_20", "minutes_sample_size",
+                   "minutes_current_season_games", "availability_minutes_limit", "lineup_age_hours",
+                   "minutes_role_confirmed", "minutes_role_change_detected", "minutes_stable"):
+        if column in predictions:
+            out[column] = predictions[column]
+        else:
+            out[column] = pd.NA
+    for column in ("closing_line", "closing_odds_over_american", "closing_odds_under_american",
+                   "closing_snapshot_at_utc", "clv_line", "clv_price_over", "clv_price_under"):
+        out[column] = predictions[column] if column in predictions else pd.NA
+    for column in ("availability_retrieved_at_utc", "availability_minutes_limit", "lineup_status",
+                   "lineup_gate", "lineup_reason", "lineup_source", "lineup_reported_at_utc",
+                   "lineup_age_hours", "minutes_projection_status", "minutes_uncertainty_reason",
+                   "probability_gate_status", "calibration_method", "confidence_grade", "main_risk",
+                   "recommended_side", "shortlist_status", "shortlist_reason", "probability_distribution"):
+        if column in predictions:
+            out[column] = predictions[column]
     out["actual_over"] = pd.to_numeric(predictions.get("actual_over", pd.Series(index=predictions.index, dtype=float)), errors="coerce")
     out["actual_stat"] = pd.to_numeric(predictions.get("actual_stat", pd.Series(index=predictions.index, dtype=float)), errors="coerce")
     for column in ("odds_over_american", "odds_under_american"):
@@ -90,14 +142,25 @@ def prepare_archive_rows(predictions: pd.DataFrame, game_date: str, snapshot_at_
         "market_consensus_line", "market_line_min", "market_line_max", "market_line_spread",
         "market_rows_at_line", "same_book_no_vig_rows", "best_over_odds_american",
         "best_under_odds_american", "market_snapshot_age_hours", "availability_age_hours",
+        "availability_minutes_limit", "lineup_age_hours",
+        "minutes_projection_mean", "minutes_projection_std", "minutes_projection_p10", "minutes_projection_p50",
+        "minutes_projection_p90", "minutes_last5_mean", "minutes_last10_mean", "minutes_last20_mean",
+        "minutes_season_mean", "minutes_previous_season_mean", "minutes_trend_last5_vs_20",
+        "minutes_sample_size", "minutes_current_season_games", "selected_model_probability",
+        "selected_market_no_vig_probability", "selected_model_edge", "selected_ev_per_1_unit",
+        "probability_cap", "calibration_model_weight", "p_push",
+        "closing_line", "closing_odds_over_american", "closing_odds_under_american",
+        "clv_line", "clv_price_over", "clv_price_under",
     )
     for column in numeric_market_columns:
         out[column] = pd.to_numeric(predictions[column], errors="coerce") if column in predictions else float("nan")
     out["settlement_status"] = "PENDING"
-    out = out.dropna(subset=["player_id", "player_name", "target", "line", "p_over"])
-    out = out[out["target"].isin(["PTS", "REB", "AST"]) & out["p_over"].between(0, 1)].copy()
+    # Keep skipped/insufficient-data prop rows for audit even when no probability
+    # is released. The calibrator separately drops rows without p_over/outcomes.
+    out = out.dropna(subset=["player_id", "player_name", "target", "line"])
+    out = out[out["target"].isin(["PTS", "REB", "AST"])].copy()
     if out.empty:
-        raise ValueError("no valid player/stat/line/probability rows found to archive")
+        raise ValueError("no valid player/stat/line rows found to archive")
     return out[COLUMNS].reset_index(drop=True)
 
 

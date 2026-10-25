@@ -12,19 +12,21 @@ def _row():
         "player_id": 11,
         "player_name": "Test Player",
         "team_abbreviation": "BOS",
+        "opponent_abbreviation": "NYK",
+        "opponent_team": "New York Knicks",
         "match_date": "2026-10-25",
         "target": "PTS",
         "line": 20.5,
         "last_game_date": "2026-10-24",
         "line_source": "user_supplied",
         "bookmaker": "Book A",
-        "model_p_over": 0.7,
-        "model_p_under": 0.3,
+        "model_p_over": 0.56,
+        "model_p_under": 0.44,
         "market_no_vig_p_over": 0.5,
         "market_no_vig_p_under": 0.5,
-        "model_edge_over_vs_market": 0.2,
-        "model_edge_under_vs_market": -0.2,
-        "ev_over_per_1_unit": 0.1,
+        "model_edge_over_vs_market": 0.06,
+        "model_edge_under_vs_market": -0.06,
+        "ev_over_per_1_unit": 0.07,
         "ev_under_per_1_unit": -0.2,
         "odds_over_american": -110,
         "odds_under_american": -110,
@@ -67,7 +69,7 @@ def test_fresh_available_report_is_matched_by_player_date_and_team(tmp_path):
 
 def test_out_report_blocks_the_market_from_shortlist(tmp_path):
     path = tmp_path / "availability.csv"
-    _write_snapshot(path, "Out")
+    _write_snapshot(path, "Out", stamp="2026-10-25T14:30:00Z")
     attached = attach_availability(
         pd.DataFrame([_row()]), path, now_utc="2026-10-25T15:00:00Z",
     )
@@ -82,7 +84,7 @@ def test_out_report_blocks_the_market_from_shortlist(tmp_path):
 
 def test_questionable_report_requires_review_and_is_not_shortlisted(tmp_path):
     path = tmp_path / "availability.csv"
-    _write_snapshot(path, "Questionable")
+    _write_snapshot(path, "Questionable", stamp="2026-10-25T14:30:00Z")
     attached = attach_availability(
         pd.DataFrame([_row()]), path, now_utc="2026-10-25T15:00:00Z",
     )
@@ -165,3 +167,29 @@ def test_archive_preserves_availability_audit_fields():
     assert row["availability_gate"] == "CLEAR"
     assert row["availability_source"] == "Official NBA injury report"
     assert row["availability_age_hours"] == pytest.approx(3.0)
+
+
+
+def test_official_report_name_format_matches_when_player_id_missing(tmp_path):
+    path = tmp_path / "availability.csv"
+    pd.DataFrame([{
+        "player_id": "",
+        "player_name": "Tatum III, Jayson",
+        "team_abbreviation": "BOS",
+        "match_date": "2026-10-25",
+        "status": "Available",
+        "reason": "Official report row",
+        "source": "https://official.nba.com/report.pdf",
+        "reported_at_utc": "2026-10-25T14:30:00Z",
+        "retrieved_at_utc": "2026-10-25T14:35:00Z",
+    }]).to_csv(path, index=False)
+    rows = pd.DataFrame([{
+        "player_id": 1628369,
+        "player_name": "Jayson Tatum III",
+        "team_abbreviation": "BOS",
+        "match_date": "2026-10-25",
+    }])
+    result = attach_availability(rows, path, now_utc="2026-10-25T15:00:00Z")
+    assert result.iloc[0]["availability_status"] == "AVAILABLE"
+    assert result.iloc[0]["availability_gate"] == "CLEAR"
+    assert result.iloc[0]["availability_retrieved_at_utc"] == "2026-10-25T14:35:00Z"

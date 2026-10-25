@@ -52,24 +52,52 @@ Output files:
 
 The slate comparison consolidates same player/stat/line rows and uses the best observed price on each side. When multiple book rows are present, the market table reports distinct books, consensus line range, and best Over/Under prices. A no-vig probability is only computed from a same-book pair (or a row explicitly representing one book); if the over quote and under quote are from different books, PropIt withholds that no-vig edge instead of treating a cross-book pair as fair probability. The default public importer is still only as broad as the Flash Odds page provides; it does not automatically subscribe to every sportsbook.
 
-Market quote age means when PropIt captured the page, not when the provider last changed its quote. Public snapshot rows older than 12 hours are blocked from the shortlist by default; change this intentionally with --max-market-age-hours. The page can still show these rows in All markets for inspection. Movement since the last import requires at least two successful refreshes. Do not interpret missing data as a pick, and verify current line, price, player ID and local availability independently.
+Market quote age means when PropIt captured the page, not when the provider last changed its quote. Public snapshot rows older than two hours are blocked from the shortlist by default; relaxing this with --max-market-age-hours is not recommended for game-day decisions. The page can still show these rows in All markets for inspection. Movement since the last import requires at least two successful refreshes. Do not interpret missing data as a pick, and verify current line, price, player ID and local availability independently.
 
-## Player availability and shortlist safeguards
+## Player availability, injury reports, minutes distributions, and lineups
 
-PropIt does **not** infer availability from recent box scores and does not automatically scrape an injury feed. Use the current [official NBA injury report](https://official.nba.com/nba-injury-report-2026-27-season/) or another source you independently trust, then maintain a point-in-time CSV for players whose status you checked.
+PropIt can fetch the latest linked PDF from the official [NBA injury report page](https://official.nba.com/nba-injury-report-2026-27-season/), parse timestamped player rows, and match them by NBA player ID where possible or normalized name plus team and scheduled game date. The official page says reports are updated continually during the day, so a stored snapshot must not be treated as a guarantee of status at tip-off. Missing, unparsed, or unlisted player rows are **not** automatically marked Available.
 
-Start from the empty template:
+Import a report for the player's **NBA-local scheduled match date** (not your computer's snapshot date):
 
-    Copy-Item data\player_availability.example.csv data\player_availability.csv
-    notepad data\player_availability.csv
+    .\\.venv\\Scripts\\python.exe -m scripts.import_nba_status --game-date YYYY-MM-DD
 
-Required columns are `player_id,match_date,status,reported_at_utc`. Optional columns are `player_name,team_abbreviation,reason,source`. Use the NBA player ID, the player's **scheduled match date** (YYYY-MM-DD), the status shown by the source, and the time you checked it as an ISO-8601 UTC timestamp (for example `2026-10-25T15:15:00Z`). Use one row per player/date and refresh it when a report changes. The template is header-only; do not enter example statuses as if they were verified.
+The command stores the current point-in-time rows in `data/player_availability.csv`, appends to `data/player_availability_history.csv`, and logs the report URL/timestamp and retrieval time in `data/injury_report_imports.csv`. It resolves IDs against the current NBA roster when that endpoint is available; unmatched rows can still match by normalized player name and team. If the official page does not link a suitable PDF or the table parser cannot parse player rows, the command fails without replacing the current snapshot.
 
-The slate shows the status and freshness gate. Fresh `Available`/`Probable` reports are CLEAR; `Out`, `Inactive`, `Suspended`, or `Rest` blocks a row; `Questionable`/`Doubtful` forces review and removes the row from the shortlist. Statuses older than six hours, unrecognized statuses, missing records, or mismatched dates/teams are marked STALE/UNVERIFIED rather than silently treated as healthy. In the normal dashboard flow, unverified rows can still appear as model candidates, but their availability gate and warning are shown explicitly. To fail closed and only shortlist rows with a fresh Available/Probable status, run:
+The dashboard's **Official NBA injury report** action does the same thing for the selected game date. The date picker is intentionally separate from the pregame snapshot date because one is an NBA-local event date and the other labels the local archive.
 
-    .\.venv\Scripts\python.exe -m src.predict_slate --lines data\prop_lines_public.csv --require-verified-availability
+### Confirmed starter/bench and role snapshots
 
-The flag affects shortlist eligibility, not the all-markets audit output. This is an operator-maintained safeguard, **not** an automatic injury feed; confirm status close to tip-off because the official report can update during the day.
+Minutes are built from historical game logs: last 5/10/20, current season and previous season, recent-versus-longer-run trend, robust dispersion, and a role-change check. In the first 14 games of a season, the minutes baseline blends roughly 70% previous-season and 30% current-season minutes when prior-season data is available and a role shift is not detected. A fresh manual return limit can cap the mean; questionable status, missing role confirmation, team changes, and role shifts widen uncertainty. The prop probability is simulated through 10,000 or more minutes scenarios rather than a single projected-minute value.
+
+Starting-five data is kept separate from injury status. PropIt does not scrape a projected lineup or silently call someone a starter based on recent minutes. To capture a verified starter/bench snapshot, start from the input header:
+
+    Copy-Item data\\player_lineups_input.example.csv data\\player_lineups_input.csv
+    notepad data\\player_lineups_input.csv
+
+Enter one row per checked player with `player_id` or `player_name`, `team_abbreviation`, and explicit `starting_status` of `STARTER` or `BENCH`. Use `reason` for a meaningful note, and optional `minutes_limit` from 1 to 48 only when a reported return restriction is known. Do not add a player based only on an unverified projection. Then stamp and import the file:
+
+    .\\.venv\\Scripts\\python.exe -m scripts.capture_lineup_snapshot --game-date YYYY-MM-DD --input data\\player_lineups_input.csv --source "https://www.nba.com/starting-lineups"
+
+The command timestamps the capture in UTC, upserts the current game-date snapshot at `data/player_lineups.csv`, and appends the capture to `data/player_lineups_history.csv`. The timestamp is the time the operator checked the source; only backdate it with `--reported-at-utc` when a real source timestamp is available and recorded. Snapshot freshness defaults to two hours.
+
+### Fail-closed shortlist rules
+
+The CLI requires fresh availability and a fresh confirmed STARTER/BENCH snapshot by default. It also requires a usable minutes projection (at least three historical minute records), a current line and both prices, a market no-vig reference, a market snapshot no older than two hours, a calibrated edge of at least 4 percentage points, and positive expected value. It withholds the calibrated probability when availability, lineup role, minimum minutes history, or no-vig market data are missing. Unknown or stale inputs remain visible in the all-markets audit as explicit skip reasons.
+
+For research/debugging only, it is possible to inspect candidates without a verified status:
+
+    .\\.venv\\Scripts\\python.exe -m src.predict_slate --lines data\\prop_lines_public.csv --allow-unverified-availability --allow-unverified-lineup
+
+Those overrides relax shortlist gates; they do **not** turn the missing statuses into verified facts. Never use that mode to treat an unverified candidate as a live bet. Lineups remain operator-entered; there is no supported free, reliable source currently wired to auto-confirm all five starters, coach rotation changes, or injury-return minute limits. The official injury importer stores the report's own publication time; the model also stores the time it was retrieved, but you still need to refresh close to tip-off.
+
+## Probability and risk controls
+
+For props with a line, the estimator uses a discrete Poisson or negative-binomial count distribution fitted to the model's context-specific quantile spread. Points use a small wider-tail mixture. Whole-number lines carry an explicit push probability; reported over/under probabilities used for calibration are conditional on a non-push result, and expected value accounts for the push separately.
+
+A qualified market probability is shrunk toward a compatible two-sided, same-book no-vig price. Until the model has a verified projected-minutes distribution and role confirmation, the model's weight is limited to 25% and the directional probability cap is 65%. A raw probability breach is flagged for review rather than silently clipped. Missing no-vig market data withholds the calibrated probability. Edges above ten points are red-flagged without a specific logged injury/role/minutes/matchup explanation.
+
+Shortlisting now requires at least a four-point calibrated edge and strictly positive expected value, a market snapshot no older than two hours, verified fresh player availability by default, and prior quote history to check public-board line movement. It also limits exposure to one prop per player-game, two props per game, quarter-Kelly stake sizes capped at 2% of bankroll per prop, and 5% total daily exposure. The minutes model is still a rolling proxy, not a true minutes-distribution model, so current lineup and rotation verification remain essential. These controls improve discipline; they do not establish profitable predictive skill. Validate using chronological Brier score, log loss, calibration buckets, ROI from genuinely pregame prices, and closing-line value before increasing model weight.
 
 ## Run the local dashboard
 
@@ -179,9 +207,9 @@ The tests cover player-isolated rolling features, minutes/usage feature timing, 
 
 - Opponent defense and possession-volume context is reconstructed from player game logs using estimated possessions (FGA + 0.44 × FTA − OREB + TOV). It is an approximation, not an official NBA pace/defensive-rating feed; each historical feature is joined from games strictly before the target game's date.
 - Minutes/role context uses rolling minutes and recent-versus-season minute trends because the current feed does not provide a dependable starter/bench designation for every historical row. The usage proxy (FGA + 0.44 × FTA + TOV) is not the official NBA usage percentage.
-- The over/under probability currently uses each row's predicted 10th–90th percentile spread rather than one global residual standard deviation. It is still a distributional estimate, **not calibrated confidence**, and is capped to avoid extreme 0%/100% claims.
+- Over/under probability now uses a discrete Poisson/negative-binomial outcome distribution, a wider-tail mixture for points, explicit integer-line push probability, and a 10,000-draw minutes Monte Carlo when a valid minutes distribution is available. These assumptions are still experimental and require chronological calibration before they should influence decisions strongly.
 - The probability calibration script requires historical pregame predictions and settled props. The public market history file tracks observations only from the moment it is enabled; it cannot reconstruct earlier prices. A timestamped archived price provides traceability, but ROI is still a historical simulation rather than proof that an edge will persist.
 - A low mean absolute error or high predicted probability is not proof of profitable betting.
-- Current roster status is not an official injury or game-availability feed.
-- Integer prop lines are skipped by the importer because the current EV model does not account for push probability.
+- The official injury report parser depends on the source PDF's current table layout. Parser failure stops the import rather than assuming an all-clear. The official report is a timestamped snapshot that may change again before tip-off.
+- The public prop-board importer may not provide complete line/book coverage; integer-line pushes are now modeled, but missing source lines or unmatched same-book prices remain blocked.
 - No automatic bet placement is implemented.

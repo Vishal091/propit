@@ -5,7 +5,7 @@ import pandas as pd
 import pytest
 
 from src.features.build import build_team_game_metrics, feature_columns
-from src.predict_slate import _build_latest_features, _validate_model_feature_context
+from src.predict_slate import _build_latest_features, _decorate_and_rank_candidates, _validate_model_feature_context
 
 
 def _row(game_id, day, player_id, player_name, team_id, opponent_id, points, matchup):
@@ -138,3 +138,21 @@ def test_retrained_model_with_varying_opponent_features_is_accepted():
         }
 
     _validate_model_feature_context(CurrentBundle(), "AST")
+
+
+def test_empty_shortlist_preserves_schema_for_dashboard_csv():
+    result, shortlist = _decorate_and_rank_candidates(
+        pd.DataFrame(columns=["player_id", "player_name", "target"])
+    )
+
+    assert result.empty
+    assert shortlist.empty
+    assert "rank" in shortlist.columns
+    assert {"player_id", "shortlist_status", "shortlist_reason"} <= set(shortlist.columns)
+    assert {
+        "suggested_stake_fraction",
+        "suggested_stake_percent",
+        "daily_exposure_after_pick_percent",
+    } <= set(shortlist.columns)
+    assert shortlist.to_csv(index=False).startswith("rank,")
+
