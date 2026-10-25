@@ -6,6 +6,7 @@ explicitly account for pushes, and never manufacture a market probability.
 from __future__ import annotations
 
 import math
+import numpy as np
 from dataclasses import dataclass
 from typing import Any
 
@@ -50,6 +51,104 @@ def _pmf(mean: float, variance: float, max_k: int) -> list[float]:
     return [value / total for value in weights]
 
 
+def _sample_count_distribution(
+    *,
+    mean: float,
+    variance: float,
+    size: int,
+    rng: np.random.Generator,
+    points_tail_mix: bool,
+) -> tuple[np.ndarray, str]:
+    """Vectorized Poisson/NB draws with optional fatter points tails."""
+    if size < 1:
+        return np.zeros(0, dtype=int), "poisson"
+    mus = np.full(size, max(0.0, float(mean)), dtype=float)
+    local_variance = np.full(size, max(float(variance), 0.0), dtype=float)
+    family = "negative_binomial" if variance > mean + 1e-8 else "poisson"
+    if points_tail_mix:
+        tail = rng.random(size) < 0.15
+        local_variance[tail] *= 1.8
+        family += "_mixture"
+    local_variance = np.maximum(local_variance, mus)
+    poisson_mask = local_variance <= mus + 1e-8
+    draws = np.zeros(size, dtype=int)
+    if poisson_mask.any():
+        draws[poisson_mask] = rng.poisson(mus[poisson_mask])
+    nb_mask = ~poisson_mask & (mus > 1e-8)
+    if nb_mask.any():
+        mu = mus[nb_mask]
+        var = local_variance[nb_mask]
+        shape = np.maximum(mu * mu / np.maximum(var - mu, 1e-8), 1e-6)
+        probability = shape / (shape + mu)
+        draws[nb_mask] = rng.negative_binomial(shape, probability)
+    return draws, family
+
+
+def _estimate_with_minutes_simulation(
+    *,
+    mean: float,
+    variance: float,
+    spread: float,
+    line: float,
+    target: str,
+    minutes_mean: float,
+    minutes_std: float,
+    simulations: int,
+    seed: int,
+) -> PropOutcomes:
+    if not math.isfinite(minutes_mean) or not math.isfinite(minutes_std) or minutes_mean <= 0 or minutes_std < 0:
+        raise ValueError("minutes_mean must be > 0 and minutes_std must be >= 0")
+    if simulations < 10_000:
+        raise ValueError("minutes Monte Carlo requires at least 10000 simulations")
+    rng = np.random.default_rng(seed)
+    minutes = np.clip(rng.normal(minutes_mean, minutes_std, size=simulations), 0.0, 53.0)
+    # A small generic overtime tail. Game-specific spread/total is not available
+    # in every feed yet, so the tail is deliberately modest and explicitly generic.
+    minutes += (rng.random(simulations) < 0.035) * 5.0
+    minutes = np.clip(minutes, 0.0, 53.0)
+    conditional_mean = np.maximum(0.0, mean * minutes / minutes_mean)
+    conditional_variance = variance * np.maximum(conditional_mean / max(mean, 0.25), 0.45)
+    conditional_variance = np.maximum(conditional_variance, conditional_mean)
+    points = target.strip().upper() == "PTS"
+
+    # Draw count outcomes conditional on the minutes mixture. Each sample gets
+    # its own mean/dispersion; no single point-minutes estimate is substituted.
+    local_variance = conditional_variance
+    if points:
+        tail = rng.random(simulations) < 0.15
+        local_variance = local_variance.copy()
+        local_variance[tail] *= 1.8
+    poisson_mask = local_variance <= conditional_mean + 1e-8
+    draws = np.zeros(simulations, dtype=int)
+    if poisson_mask.any():
+        draws[poisson_mask] = rng.poisson(conditional_mean[poisson_mask])
+    nb_mask = ~poisson_mask & (conditional_mean > 1e-8)
+    if nb_mask.any():
+        mus = conditional_mean[nb_mask]
+        vars_ = local_variance[nb_mask]
+        shape = np.maximum(mus * mus / np.maximum(vars_ - mus, 1e-8), 1e-6)
+        p = shape / (shape + mus)
+        draws[nb_mask] = rng.negative_binomial(shape, p)
+
+    integer_line = math.isclose(line, round(line), abs_tol=1e-9)
+    p_over = float(np.mean(draws > line))
+    p_under = float(np.mean(draws < line))
+    p_push = float(np.mean(draws == int(round(line)))) if integer_line else 0.0
+    total = p_over + p_under + p_push
+    if total <= _PROBABILITY_EPS:
+        p_over, p_under, p_push = 0.0, 0.0, 1.0
+    else:
+        p_over, p_under, p_push = p_over / total, p_under / total, p_push / total
+    # Report the total spread after adding the minute-distribution variance.
+    rate = mean / minutes_mean
+    combined_std = math.sqrt(max(0.0, spread * spread + (rate * minutes_std) ** 2))
+    family = "negative_binomial" if variance > mean + 1e-8 else "poisson"
+    if points:
+        family += "_mixture"
+    family += f"+minutes_mc{simulations}"
+    return PropOutcomes(p_over, p_under, p_push, family, combined_std)
+
+
 def estimate_prop_outcomes(
     *,
     mean: float,
@@ -58,6 +157,10 @@ def estimate_prop_outcomes(
     line: float,
     target: str,
     fallback_std: float,
+    minutes_mean: float | None = None,
+    minutes_std: float | None = None,
+    simulations: int = 10_000,
+    seed: int = 2027,
 ) -> PropOutcomes:
     """Estimate OVER/UNDER/PUSH using a discrete Poisson/NB distribution.
 
@@ -81,6 +184,14 @@ def estimate_prop_outcomes(
     variance = max(spread * spread, 1e-4)
     target_key = target.strip().upper()
     is_points = target_key == "PTS"
+    if minutes_mean is not None or minutes_std is not None:
+        if minutes_mean is None or minutes_std is None:
+            raise ValueError("minutes_mean and minutes_std must be supplied together")
+        return _estimate_with_minutes_simulation(
+            mean=float(mean), variance=variance, spread=spread, line=float(line),
+            target=target_key, minutes_mean=float(minutes_mean), minutes_std=float(minutes_std),
+            simulations=int(simulations), seed=int(seed),
+        )
     max_std = math.sqrt(max(variance * (1.8 if is_points else 1.0), mean, 0.25))
     max_k = min(2000, max(80, int(math.ceil(mean + 12.0 * max_std + 30.0))))
 
