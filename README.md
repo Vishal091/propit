@@ -70,7 +70,17 @@ The dashboard's **Official NBA injury report** action does the same thing for th
 
 Minutes are built from historical game logs: last 5/10/20, current season and previous season, recent-versus-longer-run trend, robust dispersion, and a role-change check. In the first 14 games of a season, the minutes baseline blends roughly 70% previous-season and 30% current-season minutes when prior-season data is available and a role shift is not detected. A fresh manual return limit can cap the mean; questionable status, missing role confirmation, team changes, and role shifts widen uncertainty. The prop probability is simulated through 10,000 or more minutes scenarios rather than a single projected-minute value.
 
-Starting-five data is kept separate from injury status. PropIt does not scrape a projected lineup or silently call someone a starter based on recent minutes. To capture a verified starter/bench snapshot, start from the input header:
+Starting-five data is kept separate from injury status. PropIt can now collect the public RotoWire starting-five page automatically while preserving its source-provided confidence class. The feed only records the five listed starter slots for each team it can parse; it does not infer bench assignments from missing players.
+
+Run the automated collector for a specific NBA-local game date:
+
+    .\\.venv\\Scripts\\python.exe -m scripts.fetch_lineups --game-date YYYY-MM-DD
+
+The collector requests `https://www.rotowire.com/basketball/nba-lineups.php?date=YYYY-MM-DD`, verifies that the page itself displays the requested date, records source URL and retrieval timestamp, resolves player IDs when the NBA roster endpoint permits, and stores the current feed in `data/player_lineups_auto.csv` with append-only history at `data/player_lineups_auto_history.csv`. It replaces current rows only for teams actually represented in the fetched page. If the page date or expected markup cannot be verified, it stops without overwriting the prior snapshot. The dashboard has a **Fetch lineup updates** action that imports the feed and rebuilds predictions.
+
+Lineup certainty is explicit in `confirmation_status`, `confidence_label`, and `source_status`. A team-side source label of **Confirmed Lineup** is recorded as source-confirmed; **Expected Lineup**, unlabeled lineups, and unknown formats are stored as `PROJECTED`. The collector never converts a projected lineup into a confirmed one. Projected entries are visible in the slate with their status, source, timestamp, and confidence label, but they do not influence the minutes role and cannot satisfy the strict shortlist gate. The public page may not expose an authoritative update timestamp, so `reported_at_utc` records PropIt's retrieval time, while `source_reported_at_utc` remains blank when the publisher does not provide one. Refresh close to tip-off and independently verify source-confirmed roles.
+
+For manual verification or when an official/team announcement is available, the operator can still capture a complete verified starter/bench snapshot:
 
     Copy-Item data\\player_lineups_input.example.csv data\\player_lineups_input.csv
     notepad data\\player_lineups_input.csv
@@ -79,7 +89,7 @@ Enter one row per checked player with `player_id` or `player_name`, `team_abbrev
 
     .\\.venv\\Scripts\\python.exe -m scripts.capture_lineup_snapshot --game-date YYYY-MM-DD --input data\\player_lineups_input.csv --source "https://www.nba.com/starting-lineups"
 
-The command timestamps the capture in UTC, upserts the current game-date snapshot at `data/player_lineups.csv`, and appends the capture to `data/player_lineups_history.csv`. The timestamp is the time the operator checked the source; only backdate it with `--reported-at-utc` when a real source timestamp is available and recorded. Snapshot freshness defaults to two hours.
+The manual command timestamps the operator-verified role in UTC and upserts `data/player_lineups.csv`, with append-only history in `data/player_lineups_history.csv`. Automated projected rows are kept in a separate ledger so a recent projection cannot overwrite or shadow an existing confirmed role. Snapshot freshness defaults to two hours.
 
 ### Fail-closed shortlist rules
 
