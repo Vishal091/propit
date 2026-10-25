@@ -182,6 +182,7 @@ def test_research_slate_view_returns_ev_sorted_unverified_rows(tmp_path, monkeyp
         ],
         "research_selected_ev": [0.02, 0.06, None],
         "research_selected_edge": [0.01, 0.03, None],
+        "research_model_p_over": [0.54, 0.58, None],
         "research_selected_probability": [0.54, 0.58, None],
         "research_market_probability": [0.53, 0.55, None],
         "research_recommended_side": ["OVER", "UNDER", ""],
