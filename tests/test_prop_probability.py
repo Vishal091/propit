@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+import pandas as pd
 
 from src.model.prop_probability import (
     calibrate_toward_market,
@@ -8,6 +9,7 @@ from src.model.prop_probability import (
     exceeds_probability_cap,
     quarter_kelly_fraction,
 )
+from src.predict_slate import _calibrate_market_probabilities, _decorate_and_rank_candidates
 
 
 def test_half_point_line_has_no_push_and_probabilities_sum_to_one():
@@ -56,3 +58,83 @@ def test_quarter_kelly_is_bounded_and_rejects_negative_ev():
     assert quarter_kelly_fraction(0.45, -110) == 0.0
     assert 0.0 < quarter_kelly_fraction(0.60, -110) <= 0.02
     assert quarter_kelly_fraction(0.99, 100) == pytest.approx(0.02)
+
+
+
+def test_calibration_shrinks_toward_market_and_keeps_push_separate():
+    frame = pd.DataFrame([{
+        "model_p_over": 0.60,
+        "model_p_under": 0.40,
+        "model_p_over_raw": 0.60,
+        "model_p_under_raw": 0.40,
+        "market_no_vig_p_over": 0.50,
+        "market_no_vig_p_under": 0.50,
+        "p_push": 0.10,
+        "availability_gate": "CLEAR",
+        "minutes_projection_status": "VERIFIED_DISTRIBUTION",
+        "minutes_role_confirmed": True,
+        "odds_over_american": -110,
+        "odds_under_american": -110,
+    }])
+    scored = _calibrate_market_probabilities(frame).iloc[0]
+    assert scored["calibration_model_weight"] == pytest.approx(0.50)
+    assert scored["calibrated_p_over"] == pytest.approx(0.55)
+    assert scored["calibrated_p_under"] == pytest.approx(0.45)
+    assert scored["p_push"] == pytest.approx(0.10)
+    assert scored["probability_gate_status"] == "CALIBRATED"
+    assert scored["ev_over_per_1_unit"] == pytest.approx(0.045)
+
+
+def test_raw_probability_cap_breach_is_not_silently_clipped():
+    frame = pd.DataFrame([{
+        "model_p_over": 0.70,
+        "model_p_under": 0.30,
+        "model_p_over_raw": 0.70,
+        "model_p_under_raw": 0.30,
+        "market_no_vig_p_over": 0.50,
+        "market_no_vig_p_under": 0.50,
+        "p_push": 0.0,
+        "availability_gate": "CLEAR",
+        "minutes_projection_status": "ROLLING_PROXY_ONLY",
+        "minutes_role_confirmed": False,
+        "odds_over_american": -110,
+        "odds_under_american": -110,
+    }])
+    scored = _calibrate_market_probabilities(frame).iloc[0]
+    assert scored["probability_cap"] == pytest.approx(0.65)
+    assert scored["probability_gate_status"] == "RAW_MODEL_CAP_RED_FLAG"
+    assert scored["calibrated_p_over"] == pytest.approx(0.55)
+
+
+def test_exposure_overlay_limits_game_to_two_distinct_players():
+    rows = []
+    for player_id in (1, 2, 3, 4):
+        rows.append({
+            "player_id": player_id,
+            "player_name": f"Player {player_id}",
+            "team": "Boston Celtics",
+            "team_abbreviation": "BOS",
+            "opponent_team": "New York Knicks",
+            "opponent_abbreviation": "NYK",
+            "match_date": "2026-10-25",
+            "target": "PTS",
+            "line": 20.5,
+            "last_game_date": "2026-10-24",
+            "line_source": "user_supplied",
+            "bookmaker": "Book A",
+            "model_p_over": 0.56,
+            "model_p_under": 0.44,
+            "market_no_vig_p_over": 0.50,
+            "market_no_vig_p_under": 0.50,
+            "model_edge_over_vs_market": 0.06,
+            "model_edge_under_vs_market": -0.06,
+            "ev_over_per_1_unit": 0.07,
+            "ev_under_per_1_unit": -0.20,
+            "odds_over_american": -110,
+            "odds_under_american": -110,
+        })
+    ranked, shortlist = _decorate_and_rank_candidates(pd.DataFrame(rows), today=pd.Timestamp("2026-10-25"))
+    assert len(shortlist) == 2
+    assert shortlist["player_id"].nunique() == 2
+    assert shortlist["suggested_stake_percent"].sum() <= 4.0
+    assert (ranked["shortlist_status"] == "GAME_EXPOSURE_LIMIT").sum() == 2
