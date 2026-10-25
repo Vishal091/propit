@@ -225,11 +225,32 @@ def api_audit(limit: int = Query(default=40, ge=1, le=200)) -> dict[str, Any]:
     return {"count": len(rows), "rows": rows}
 
 
+def _shortlist_diagnostics(frame: pd.DataFrame, *, limit: int = 5) -> dict[str, Any]:
+    """Summarize scored-row rejection reasons for the empty-shortlist UI."""
+    if frame.empty:
+        return {"scored_rows": 0, "status_counts": []}
+    statuses = frame.get(
+        "shortlist_status", pd.Series("UNCLASSIFIED", index=frame.index)
+    ).fillna("UNCLASSIFIED").astype(str).str.strip().replace("", "UNCLASSIFIED").str.upper()
+    reasons = frame.get("shortlist_reason", pd.Series("", index=frame.index)).fillna("").astype(str).str.strip()
+    grouped: list[dict[str, Any]] = []
+    counts = statuses.value_counts(dropna=False)
+    for status, count in counts.head(limit).items():
+        matching_reasons = reasons.loc[statuses.eq(status)]
+        matching_reasons = matching_reasons.loc[matching_reasons.ne("")]
+        reason = matching_reasons.value_counts().index[0] if not matching_reasons.empty else ""
+        grouped.append({"status": str(status), "count": int(count), "reason": reason})
+    return {"scored_rows": int(len(frame)), "status_counts": grouped}
+
+
 @app.get("/api/slate")
 def api_slate(view: str = Query(default="shortlist", pattern="^(shortlist|all)$")) -> dict[str, Any]:
     path = SHORTLIST if view == "shortlist" else LATEST
     frame = _read_csv(path)
-    return {"view": view, "count": int(len(frame)), "rows": _records(frame.head(500))}
+    result = {"view": view, "count": int(len(frame)), "rows": _records(frame.head(500))}
+    if view == "shortlist" and frame.empty:
+        result["diagnostics"] = _shortlist_diagnostics(_read_csv(LATEST))
+    return result
 
 
 @app.get("/api/history")
