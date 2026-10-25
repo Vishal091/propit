@@ -1,7 +1,6 @@
 """Inference utilities for expected stat values and over/under probabilities."""
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -9,13 +8,10 @@ from typing import Any
 import pandas as pd
 
 from src.features.build import feature_columns
+from src.model.prop_probability import estimate_prop_outcomes
 from src.model.train import TrainedModel
 
 ARTIFACTS = Path("artifacts")
-_MIN_PROBABILITY = 0.02
-_MAX_PROBABILITY = 0.98
-
-
 @dataclass
 class Prediction:
     target: str
@@ -24,24 +20,32 @@ class Prediction:
     expected_value: float
     interval_80: tuple[float, float]
     drivers: list[dict[str, Any]]
+    # Conditional on a decisive result (pushes excluded), matching calibration
+    # targets used by the chronological settled-prop workflow.
+    p_push: float | None = None
+    probability_distribution: str | None = None
 
 
-def _normal_cdf(x: float) -> float:
-    return 0.5 * (1.0 + math.erf(x / math.sqrt(2.0)))
-
-
-def _probability_over(line: float, p10: float, p50: float, p90: float, fallback_std: float) -> float:
-    """Estimate P(stat > line) from the row-specific quantile interval.
-
-    This is a distributional approximation, not a calibrated probability. The
-    quantile spread lets uncertainty vary by player/game context instead of
-    applying one global residual standard deviation to every prediction.
-    """
-    spread_std = (p90 - p10) / (2.0 * 1.2815515655446004)
-    scale = spread_std if math.isfinite(spread_std) and spread_std > 1e-6 else fallback_std
-    scale = max(float(scale), 1e-6)
-    raw = 1.0 - _normal_cdf((line - p50) / scale)
-    return float(min(_MAX_PROBABILITY, max(_MIN_PROBABILITY, raw)))
+def _probability_over(
+    line: float,
+    p10: float,
+    p50: float,
+    p90: float,
+    fallback_std: float,
+    target: str = "PTS",
+) -> tuple[float, float, str]:
+    """Return P(over | no push), P(push), and the discrete distribution family."""
+    outcomes = estimate_prop_outcomes(
+        mean=max(float(p50), 0.0),
+        p10=float(p10),
+        p90=float(p90),
+        line=float(line),
+        target=target,
+        fallback_std=float(fallback_std),
+    )
+    decisive = outcomes.p_over + outcomes.p_under
+    conditional_over = outcomes.p_over / decisive if decisive > 1e-9 else 0.5
+    return float(conditional_over), float(outcomes.p_push), outcomes.distribution
 
 
 def predict_one(
@@ -59,8 +63,12 @@ def predict_one(
     p50 = float(bundle.q50.predict(X)[0])
     p90 = float(bundle.q90.predict(X)[0])
     p_over: float | None = None
+    p_push: float | None = None
+    distribution: str | None = None
     if line is not None:
-        p_over = _probability_over(float(line), p10, p50, p90, float(bundle.residual_std))
+        p_over, p_push, distribution = _probability_over(
+            float(line), p10, p50, p90, float(bundle.residual_std), target=target
+        )
     importance = bundle.q50.feature_importances_
     baselines = getattr(bundle, "feature_means", None) or {}
     drivers = []
@@ -77,4 +85,6 @@ def predict_one(
         expected_value=p50,
         interval_80=(p10, p90),
         drivers=drivers[:3],
+        p_push=p_push,
+        probability_distribution=distribution,
     )
