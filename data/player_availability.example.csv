@@ -1,1 +1,1 @@
-player_id,player_name,team_abbreviation,match_date,status,reason,source,reported_at_utc
+player_id,player_name,team_abbreviation,match_date,status,reason,source,reported_at_utc,retrieved_at_utc,minutes_limit
