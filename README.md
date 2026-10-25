@@ -97,6 +97,8 @@ The dashboard includes a separate **Research view** for inspecting raw or market
 
 Research-view rows are not qualified shortlist picks. Their availability/lineup states and strict screen reason remain available in the row's hover details. The **Shortlist** tab and `predictions/shortlist.csv` remain unchanged: unverified or questionable availability and unconfirmed roles cannot pass strict qualification. Research estimates are for debugging and context only, not betting recommendations.
 
+The slate also includes a separate **Pending confirmation** panel. It only shows rows blocked by lineup/availability evidence that still have a positive exploratory research edge and EV, at least 53% research probability, fresh market/data, paired prices, a same-book no-vig reference, and prior market/movement evidence. Explicitly unavailable players and rows with unrelated market-quality failures are omitted. The panel is a research-only follow-up queue, not a shortlist or bet recommendation; after evidence is verified, refresh and rescore so all strict qualification rules run again.
+
 ### Fail-closed shortlist rules
 
 The CLI requires fresh availability and a fresh confirmed STARTER/BENCH snapshot by default. It also requires a usable minutes projection (at least three historical minute records), a current line and both prices, a market no-vig reference, a market snapshot no older than two hours, a calibrated edge of at least 4 percentage points, and positive expected value. It withholds the calibrated probability when availability, lineup role, minimum minutes history, or no-vig market data are missing. Unknown or stale inputs remain visible in the all-markets audit as explicit skip reasons.
