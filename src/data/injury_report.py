@@ -245,8 +245,8 @@ def extract_team_submission_metadata(
     # Prefer coordinates, which preserve the official seven-column layout.
     # Use table output only if positional extraction yielded no pages at all.
     datasets = positioned_pages if positioned_pages else tables
+    active_date: date | None = None
     for table in datasets:
-        active_date: date | None = None
         for raw_row in table:
             if not raw_row:
                 continue
