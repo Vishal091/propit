@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from src.soccer.insights import build_best_picks, build_calibration_report, canonical_top_five_league
+from src.soccer.insights import build_best_picks, build_calibration_report, canonical_top_five_league, diagnose_best_picks
 
 
 def forecast(**overrides):
@@ -102,3 +102,48 @@ def test_calibration_rejects_invalid_bin_settings():
         build_calibration_report([], bins=1)
     with pytest.raises(ValueError):
         build_calibration_report([], min_samples=0)
+
+
+
+def test_best_pick_diagnostics_count_each_rejection_gate_without_relaxing_filters():
+    rows = [
+        forecast(match_id="cup", competition_id="ucl", competition_name="Champions League"),
+        forecast(match_id="missing-home", home_team=""),
+        forecast(match_id="finished", match_state="finished"),
+        forecast(match_id="thin-history", history_matches=2),
+        forecast(
+            match_id="missing-probabilities",
+            poisson_home_win=None, poisson_draw=None, poisson_away_win=None,
+            poisson_over=None, poisson_under=None,
+        ),
+        forecast(
+            match_id="low-probability", poisson_home_win=0.40, poisson_draw=0.30,
+            poisson_away_win=0.30, poisson_over=0.40, poisson_under=0.30,
+        ),
+        forecast(match_id="qualifies"),
+        forecast(match_id="duplicate"),
+    ]
+    result = diagnose_best_picks(rows, min_history_matches=8, min_probability=0.52)
+
+    assert result["input_rows"] == 8
+    assert result["top_five_rows"] == 7
+    assert result["qualified_fixtures"] == 1
+    assert result["rejection_counts"] == {
+        "OUTSIDE_TOP_FIVE_LEAGUES": 1,
+        "MISSING_FIXTURE_IDENTITY": 1,
+        "FINISHED_OR_SCORED": 1,
+        "INSUFFICIENT_HISTORY": 1,
+        "MISSING_VALID_PROBABILITIES": 1,
+        "BELOW_MIN_PROBABILITY": 1,
+        "DUPLICATE_FIXTURE": 1,
+    }
+
+
+def test_ineligible_duplicate_does_not_suppress_later_eligible_fixture():
+    rows = [
+        forecast(match_id="thin-copy", history_matches=2),
+        forecast(match_id="usable-copy"),
+    ]
+    picks = build_best_picks(rows, min_history_matches=8, min_probability=0.52)
+    assert len(picks) == 1
+    assert picks[0]["match_id"] == "usable-copy"
