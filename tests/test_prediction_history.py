@@ -118,3 +118,73 @@ def test_archive_does_not_fake_match_date_when_schedule_lookup_is_blank():
     assert rows.iloc[0]["match_date"] == ""
     assert rows.iloc[0]["game_date"] == ""
 
+
+
+def test_archive_separates_raw_and_market_shrunk_probabilities_and_minutes_context():
+    source = pd.DataFrame({
+        "player_id": [11],
+        "player_name": ["Demo Player"],
+        "target": ["PTS"],
+        "line": [20.5],
+        "match_date": ["2026-10-25"],
+        "model_p_over_raw": [0.61],
+        "model_p_under_raw": [0.39],
+        "p_over": [0.54],
+        "calibrated_p_over": [0.54],
+        "calibrated_p_under": [0.46],
+        "selected_model_probability": [0.54],
+        "selected_market_no_vig_probability": [0.50],
+        "selected_model_edge": [0.04],
+        "selected_ev_per_1_unit": [0.03],
+        "recommended_side": ["OVER"],
+        "shortlist_status": ["SHORTLIST_CANDIDATE"],
+        "probability_gate_status": ["CALIBRATED"],
+        "p_push": [0.0],
+        "minutes_projection_mean": [32.5],
+        "minutes_projection_std": [3.2],
+        "minutes_projection_p10": [28.4],
+        "minutes_projection_p90": [36.6],
+        "minutes_sample_size": [18],
+        "minutes_role_change_detected": [False],
+        "minutes_stable": [True],
+        "minutes_projection_status": ["HISTORY_SUPPORTED"],
+        "minutes_uncertainty_reason": ["Historical minutes are stable."],
+        "lineup_status": ["STARTER"],
+        "lineup_gate": ["CLEAR"],
+        "lineup_reported_at_utc": ["2026-10-25T14:00:00Z"],
+        "availability_status": ["AVAILABLE"],
+        "availability_gate": ["CLEAR"],
+        "availability_reported_at_utc": ["2026-10-25T14:00:00Z"],
+        "availability_retrieved_at_utc": ["2026-10-25T14:05:00Z"],
+        "odds_over_american": [-110],
+        "odds_under_american": [-110],
+        "bookmaker": ["Book A"],
+    })
+    row = prepare_archive_rows(source, "2026-10-25", "2026-10-25T14:10:00Z").iloc[0]
+    assert row["p_over"] == pytest.approx(0.61)  # raw input reserved for chronological calibration
+    assert row["model_p_over_raw"] == pytest.approx(0.61)
+    assert row["market_shrunk_p_over"] == pytest.approx(0.54)
+    assert row["selected_model_probability"] == pytest.approx(0.54)
+    assert row["minutes_projection_mean"] == pytest.approx(32.5)
+    assert row["minutes_sample_size"] == 18
+    assert row["lineup_status"] == "STARTER"
+    assert row["availability_retrieved_at_utc"] == "2026-10-25T14:05:00Z"
+    assert row["recommended_side"] == "OVER"
+
+
+def test_archive_keeps_insufficient_data_rows_without_probability():
+    source = pd.DataFrame({
+        "player_id": [11],
+        "player_name": ["Demo Player"],
+        "target": ["REB"],
+        "line": [7.5],
+        "match_date": ["2026-10-25"],
+        "p_over": [float("nan")],
+        "probability_gate_status": ["INSUFFICIENT_LINEUP_DATA"],
+        "shortlist_status": ["INSUFFICIENT_LINEUP_DATA"],
+        "shortlist_reason": ["No fresh confirmed starter/bench snapshot."],
+    })
+    rows = prepare_archive_rows(source, "2026-10-25", "2026-10-25T14:10:00Z")
+    assert len(rows) == 1
+    assert pd.isna(rows.iloc[0]["p_over"])
+    assert rows.iloc[0]["shortlist_status"] == "INSUFFICIENT_LINEUP_DATA"
