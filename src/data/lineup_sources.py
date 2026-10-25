@@ -18,6 +18,13 @@ from bs4 import BeautifulSoup, Tag
 from src.player_identity import normalize_player_name
 
 ROTOWIRE_LINEUPS_URL = "https://www.rotowire.com/basketball/nba-lineups.php"
+# Mirrors observed serving the same public lineup page. These are transport
+# fallbacks only; every response still must pass the same date and parser checks.
+ROTOWIRE_LINEUP_MIRROR_HOSTS = (
+    "rotowire.com",
+    "aws-prod-web9.rotowire.com",
+    "web7.rotowire.com",
+)
 LINEUP_HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -279,34 +286,102 @@ def parse_rotowire_lineups(
     return frame, meta
 
 
+class LineupSourceUnavailableError(RuntimeError):
+    """Raised when no candidate public lineup host can provide a verified page."""
+
+
+def _lineup_request_urls(url: str, target_date: date) -> list[str]:
+    parts = urlsplit(url)
+    hosts = [parts.netloc]
+    # Use the mirrors only for the known public RotoWire endpoint. Explicit
+    # --url overrides remain explicit and do not unexpectedly switch sources.
+    if (
+        parts.netloc.lower() == "www.rotowire.com"
+        and parts.path.rstrip("/") == "/basketball/nba-lineups.php"
+    ):
+        hosts.extend(ROTOWIRE_LINEUP_MIRROR_HOSTS)
+    query = dict(parse_qsl(parts.query, keep_blank_values=True))
+    query["date"] = target_date.isoformat()
+    urls: list[str] = []
+    seen: set[str] = set()
+    for host in hosts:
+        candidate = urlunsplit((
+            parts.scheme or "https",
+            host,
+            parts.path or "/basketball/nba-lineups.php",
+            urlencode(query),
+            parts.fragment,
+        ))
+        if candidate not in seen:
+            seen.add(candidate)
+            urls.append(candidate)
+    return urls
+
+
 def fetch_rotowire_lineups(
     game_date: str,
     *,
     url: str = ROTOWIRE_LINEUPS_URL,
-    timeout_seconds: int = 20,
+    timeout_seconds: int = 12,
     session: requests.Session | None = None,
     roster: pd.DataFrame | None = None,
 ) -> tuple[pd.DataFrame, dict[str, Any]]:
-    """Fetch a target-date lineup page and reject stale/wrong-date page results."""
+    """Fetch a target-date lineup page using safe host fallbacks.
+
+    Each candidate must return a page whose embedded date matches game_date and
+    whose lineup cards are parseable. Network failures are summarized rather
+    than leaking a long urllib3 traceback to the dashboard. The caller writes
+    snapshots only after this function returns successfully.
+    """
     try:
         target_date = date.fromisoformat(game_date)
     except (TypeError, ValueError) as exc:
         raise ValueError("game_date must be YYYY-MM-DD") from exc
-    parts = urlsplit(url)
-    query = dict(parse_qsl(parts.query, keep_blank_values=True))
-    query["date"] = target_date.isoformat()
-    request_url = urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
+    candidate_urls = _lineup_request_urls(url, target_date)
     client = session or requests.Session()
-    response = client.get(request_url, headers=LINEUP_HEADERS, timeout=timeout_seconds)
-    response.raise_for_status()
-    source_url = str(getattr(response, "url", "") or request_url)
-    retrieved = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-    frame, meta = parse_rotowire_lineups(
-        response.text,
-        game_date=target_date.isoformat(),
-        source_url=source_url,
-        retrieved_at_utc=retrieved,
-        roster=roster,
+    failures: list[str] = []
+
+    for request_url in candidate_urls:
+        host = urlsplit(request_url).netloc
+        try:
+            response = client.get(
+                request_url, headers=LINEUP_HEADERS, timeout=timeout_seconds
+            )
+            response.raise_for_status()
+        except requests.RequestException as exc:
+            # DNS failures, connection resets, timeouts and unavailable hosts
+            # are eligible for fallback. No current snapshot is changed here.
+            detail = " ".join(str(exc).split())
+            failures.append(f"{host}: network/HTTP error ({type(exc).__name__}: {detail[:240]})")
+            continue
+
+        source_url = str(getattr(response, "url", "") or request_url)
+        retrieved = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        try:
+            frame, meta = parse_rotowire_lineups(
+                response.text,
+                game_date=target_date.isoformat(),
+                source_url=source_url,
+                retrieved_at_utc=retrieved,
+                roster=roster,
+            )
+        except ValueError as exc:
+            detail = " ".join(str(exc).split())
+            failures.append(f"{host}: page validation failed ({detail[:240]})")
+            continue
+
+        meta["http_status"] = int(getattr(response, "status_code", 200))
+        meta["fallback_host_used"] = host != urlsplit(candidate_urls[0]).netloc
+        meta["attempted_hosts"] = [urlsplit(item).netloc for item in candidate_urls[: candidate_urls.index(request_url) + 1]]
+        return frame, meta
+
+    attempted = ", ".join(urlsplit(item).netloc for item in candidate_urls)
+    details = " | ".join(failures) if failures else "No usable response was returned."
+    raise LineupSourceUnavailableError(
+        "PropIt could not fetch a date-verified lineup page from the public source. "
+        f"Hosts tried: {attempted}. Details: {details}. "
+        "Existing lineup snapshots were left unchanged. Check internet/DNS with "
+        "PowerShell: Resolve-DnsName www.rotowire.com; Resolve-DnsName aws-prod-web9.rotowire.com. "
+        "If these also fail for other websites, fix the PC/network DNS connection and retry."
     )
-    meta["http_status"] = int(getattr(response, "status_code", 200))
-    return frame, meta
+
