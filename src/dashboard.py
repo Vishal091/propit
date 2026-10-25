@@ -256,12 +256,14 @@ def api_slate(view: str = Query(default="shortlist", pattern="^(shortlist|all|re
                 ["_research_ev_sort", "_research_edge_sort"],
                 ascending=[False, False], na_position="last", kind="stable",
             ).drop(columns=["_research_ev_sort", "_research_edge_sort"])
-            available = int(pd.to_numeric(frame.get("research_selected_ev"), errors="coerce").notna().sum())
+            available = int(pd.to_numeric(frame.get("research_model_p_over"), errors="coerce").notna().sum())
+            with_ev = int(pd.to_numeric(frame.get("research_selected_ev"), errors="coerce").notna().sum())
             diagnostics = {
                 "scored_rows": int(len(frame)),
                 "rows_with_research_estimates": available,
                 "rows_without_research_estimates": int(len(frame) - available),
-                "notice": "Research estimates are exploratory, use only 15% raw-model weight with 85% compatible no-vig market weight, and do not satisfy strict shortlist gates.",
+                "rows_with_research_ev": with_ev,
+                "notice": "Research probabilities are raw when no compatible no-vig reference exists; otherwise they use 15% raw-model weight and 85% market weight. Edge/EV are withheld without a valid no-vig market and both side prices. Research rows never satisfy strict shortlist gates.",
             }
         else:
             diagnostics = {
