@@ -10,6 +10,7 @@ append-only import history for audit.
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -134,12 +135,18 @@ def import_report(
     _append_csv(records, history_path)
     meta = {
         **metadata,
+        "teams_not_yet_submitted_json": json.dumps(
+            metadata.get("teams_not_yet_submitted", []), ensure_ascii=False
+        ),
+        "team_report_coverage_parsed": bool(metadata.get("team_report_coverage_parsed", False)),
         "output_path": str(output_path),
         "history_path": str(history_path),
         "resolved_player_ids": int(resolved_count),
         "unresolved_player_ids": int(len(records) - resolved_count),
         "status_counts": records["status"].value_counts(dropna=False).to_dict(),
     }
+    # Store team lists as JSON text in the CSV audit row, not Python repr strings.
+    meta.pop("teams_not_yet_submitted", None)
     _append_csv(pd.DataFrame([meta]), imports_path)
     return meta
 
