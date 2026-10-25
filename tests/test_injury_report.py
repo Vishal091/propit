@@ -24,7 +24,7 @@ def test_report_timestamp_is_parsed_in_eastern_time():
     )
     assert stamp is not None
     assert stamp.isoformat() == "2026-10-25T01:15:00-04:00"
-    assert stamp.tz_convert("UTC") if hasattr(stamp, "tz_convert") else stamp.astimezone(__import__("datetime").timezone.utc)
+    assert stamp.astimezone(timezone.utc).isoformat() == "2026-10-25T05:15:00+00:00"
 
 
 def test_select_latest_report_for_target_game_date():
