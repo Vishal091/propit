@@ -122,7 +122,10 @@ def project_minutes(
     if target_team and "TEAM_ABBREVIATION" in frame.columns:
         team_col = frame["TEAM_ABBREVIATION"].fillna("").astype(str).str.strip().str.upper()
         same_team = frame.loc[team_col.eq(target_team)]
-        if len(same_team) >= 3:
+        if len(same_team) > 0:
+            # Rebuild recent role estimates from this team's games only, even
+            # for a player with just one or two games after a trade. Keep the
+            # wider frame separately available only as a conservative fallback.
             team_changed = len(same_team) < len(frame)
             frame = same_team.copy()
         elif len(frame) > 0 and team_col.iloc[-1] != target_team:
