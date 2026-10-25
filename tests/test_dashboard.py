@@ -142,6 +142,34 @@ def test_official_injury_report_dashboard_action_uses_selected_nba_date(monkeypa
     assert captured["plan"] == [("scripts.import_nba_status", ["--game-date", "2026-10-25"])]
 
 
+def test_automated_lineup_dashboard_action_collects_then_rebuilds_predictions(monkeypatch):
+    from src import dashboard
+
+    captured = {}
+    monkeypatch.setattr(
+        dashboard, "_run_steps",
+        lambda plan: captured.update({"plan": plan}) or {"ok": True, "steps": plan},
+    )
+    result = dashboard.api_lineups(dashboard.GameDateRequest(game_date="2026-10-25"))
+
+    assert result["ok"] is True
+    assert captured["plan"] == [
+        ("scripts.fetch_lineups", ["--game-date", "2026-10-25"]),
+        ("src.predict_slate", ["--lines", "data/prop_lines_public.csv", "--top", "10"]),
+    ]
+
+
+def test_automated_lineup_dashboard_action_rejects_invalid_date(monkeypatch):
+    from src import dashboard
+
+    called = []
+    monkeypatch.setattr(dashboard, "_run_steps", lambda plan: called.append(plan) or {"ok": True})
+    result = dashboard.api_lineups(dashboard.GameDateRequest(game_date="2026-02-30"))
+
+    assert result["ok"] is False
+    assert called == []
+
+
 def test_official_injury_report_dashboard_action_rejects_invalid_date(monkeypatch):
     from src import dashboard
 
