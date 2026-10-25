@@ -19,6 +19,7 @@ from src.data.seasons import current_season, recent_seasons
 from src.data.schedule import get_next_game_map
 from src.features.build import build_player_features, build_team_game_metrics, feature_columns
 from src.model.predict import Prediction, predict_one
+from src.model.minutes import project_minutes
 from src.model.prop_probability import (
     calibrate_toward_market,
     exceeds_probability_cap,
@@ -31,6 +32,7 @@ from src.market_comparison import (
     no_vig_probabilities,
 )
 from src.availability import attach_availability, DEFAULT_AVAILABILITY_PATH, DEFAULT_MAX_AGE_HOURS
+from src.lineups import attach_lineups, DEFAULT_LINEUP_PATH, DEFAULT_LINEUP_MAX_AGE_HOURS
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("predict_slate")
@@ -431,6 +433,123 @@ def _build_latest_features(
     )
     return features
 
+def _build_minutes_context(
+    games: pd.DataFrame,
+    active_players: dict[int, str],
+    player_teams: dict[int, dict[str, Any]],
+    next_games: dict[str, dict[str, str]],
+    team_id_by_abbreviation: dict[str, int],
+    *,
+    availability_file: Path,
+    lineups_file: Path,
+    max_availability_age_hours: float,
+    max_lineup_age_hours: float,
+) -> dict[int, dict[str, Any]]:
+    """Build per-player minutes distributions using status/lineup snapshots for the scheduled date."""
+    scheduled_rows: list[dict[str, Any]] = []
+    for player_id, player_name in active_players.items():
+        match = _next_match_for_player(
+            player_id, player_teams, next_games,
+            team_id_by_abbreviation=team_id_by_abbreviation,
+        )
+        match_date = pd.to_datetime(match.get("match_date"), errors="coerce")
+        if pd.isna(match_date):
+            continue
+        scheduled_rows.append({
+            "player_id": player_id,
+            "player_name": player_name,
+            "team": match.get("team") or player_teams.get(player_id, {}).get("team", ""),
+            "team_abbreviation": match.get("team_abbreviation") or player_teams.get(player_id, {}).get("team_abbreviation", ""),
+            "match_date": match_date.date().isoformat(),
+            "opponent_team": match.get("opponent_team", ""),
+            "opponent_abbreviation": match.get("opponent_abbreviation", ""),
+        })
+    if not scheduled_rows:
+        log.warning("No schedulable match dates; minutes context cannot be built.")
+        return {}
+
+    schedule = pd.DataFrame(scheduled_rows)
+    schedule = attach_availability(
+        schedule, availability_file, max_age_hours=max_availability_age_hours,
+    )
+    schedule = attach_lineups(
+        schedule, lineups_file, max_age_hours=max_lineup_age_hours,
+    )
+    game_groups = {
+        int(pid): group.sort_values("GAME_DATE", kind="stable").copy()
+        for pid, group in games.groupby("PLAYER_ID", sort=False)
+    }
+    result: dict[int, dict[str, Any]] = {}
+    for row in schedule.to_dict(orient="records"):
+        try:
+            player_id = int(row["player_id"])
+        except (TypeError, ValueError):
+            continue
+        history = game_groups.get(player_id, pd.DataFrame())
+        availability_gate = str(row.get("availability_gate") or "UNVERIFIED").upper()
+        lineup_gate = str(row.get("lineup_gate") or "UNVERIFIED").upper()
+        injury_status = str(row.get("availability_status") or "UNKNOWN").upper()
+        if availability_gate not in {"CLEAR", "REVIEW", "BLOCKED"}:
+            injury_status = availability_gate
+        lineup_status = str(row.get("lineup_status") or "UNKNOWN").upper()
+        if lineup_gate != "CLEAR":
+            lineup_status = "UNKNOWN"
+        return_limit = row.get("availability_minutes_limit")
+        if availability_gate not in {"CLEAR", "REVIEW"}:
+            return_limit = None
+        projection = project_minutes(
+            history,
+            target_team=str(row.get("team_abbreviation") or ""),
+            match_date=row.get("match_date"),
+            current_season=current_season(),
+            lineup_status=lineup_status,
+            injury_status=injury_status,
+            minutes_limit=return_limit,
+        )
+        info: dict[str, Any] = {
+            "minutes_projection_mean": projection.mean,
+            "minutes_projection_std": projection.std,
+            "minutes_projection_p10": projection.p10,
+            "minutes_projection_p50": projection.p50,
+            "minutes_projection_p90": projection.p90,
+            "minutes_last5_mean": projection.last5_mean,
+            "minutes_last10_mean": projection.last10_mean,
+            "minutes_last20_mean": projection.last20_mean,
+            "minutes_season_mean": projection.season_mean,
+            "minutes_previous_season_mean": projection.previous_season_mean,
+            "minutes_trend_last5_vs_20": projection.trend_last5_vs_20,
+            "minutes_sample_size": projection.sample_size,
+            "minutes_current_season_games": projection.current_season_games,
+            "minutes_role_change_detected": projection.role_change_detected,
+            "minutes_stable": projection.stable,
+            "minutes_projection_status": projection.projection_status,
+            "minutes_uncertainty_reason": projection.uncertainty_reason,
+            "availability_status": row.get("availability_status", "UNKNOWN"),
+            "availability_gate": availability_gate,
+            "availability_reason": row.get("availability_reason", ""),
+            "availability_source": row.get("availability_source", ""),
+            "availability_reported_at_utc": row.get("availability_reported_at_utc", ""),
+            "availability_age_hours": row.get("availability_age_hours"),
+            "availability_retrieved_at_utc": row.get("availability_retrieved_at_utc", ""),
+            "minutes_limit": return_limit,
+            "lineup_status": lineup_status,
+            "lineup_gate": lineup_gate,
+            "lineup_reason": row.get("lineup_reason", ""),
+            "lineup_source": row.get("lineup_source", ""),
+            "lineup_reported_at_utc": row.get("lineup_reported_at_utc", ""),
+            "lineup_age_hours": row.get("lineup_age_hours"),
+            "minutes_role_confirmed": bool(lineup_gate == "CLEAR" and lineup_status in {"STARTER", "BENCH"}),
+        }
+        # Only one schedule row per active player is expected. If duplicate roster
+        # entries occur, prefer the most recently reported data and deterministic ID.
+        result[player_id] = info
+    log.info(
+        "built minutes distributions for %s scheduled players; %s have verified starter/bench snapshots",
+        len(result), sum(bool(row.get("minutes_role_confirmed")) for row in result.values()),
+    )
+    return result
+
+
 def _prediction_record(
     player_id: int,
     player_name: str,
@@ -475,6 +594,31 @@ def _prediction_record(
         "model_p_under": round(p_under, 4) if p_under is not None else None,
         "model_p_over_raw": round(p_over, 4) if p_over is not None else None,
         "model_p_under_raw": round(p_under, 4) if p_under is not None else None,
+        "minutes_projection_mean": _number_or_none(market_info.get("minutes_projection_mean")),
+        "minutes_projection_std": _number_or_none(market_info.get("minutes_projection_std")),
+        "minutes_projection_p10": _number_or_none(market_info.get("minutes_projection_p10")),
+        "minutes_projection_p50": _number_or_none(market_info.get("minutes_projection_p50")),
+        "minutes_projection_p90": _number_or_none(market_info.get("minutes_projection_p90")),
+        "minutes_last5_mean": _number_or_none(market_info.get("minutes_last5_mean")),
+        "minutes_last10_mean": _number_or_none(market_info.get("minutes_last10_mean")),
+        "minutes_last20_mean": _number_or_none(market_info.get("minutes_last20_mean")),
+        "minutes_season_mean": _number_or_none(market_info.get("minutes_season_mean")),
+        "minutes_previous_season_mean": _number_or_none(market_info.get("minutes_previous_season_mean")),
+        "minutes_trend_last5_vs_20": _number_or_none(market_info.get("minutes_trend_last5_vs_20")),
+        "minutes_sample_size": _number_or_none(market_info.get("minutes_sample_size")),
+        "minutes_current_season_games": _number_or_none(market_info.get("minutes_current_season_games")),
+        "minutes_role_change_detected": bool(market_info.get("minutes_role_change_detected", False)),
+        "minutes_stable": bool(market_info.get("minutes_stable", False)),
+        "minutes_uncertainty_reason": str(market_info.get("minutes_uncertainty_reason") or ""),
+        "lineup_status": str(market_info.get("lineup_status") or "UNKNOWN"),
+        "lineup_gate": str(market_info.get("lineup_gate") or "UNVERIFIED"),
+        "lineup_reason": str(market_info.get("lineup_reason") or ""),
+        "lineup_source": str(market_info.get("lineup_source") or ""),
+        "lineup_reported_at_utc": str(market_info.get("lineup_reported_at_utc") or ""),
+        "lineup_age_hours": _number_or_none(market_info.get("lineup_age_hours")),
+        "availability_retrieved_at_utc": str(market_info.get("availability_retrieved_at_utc") or ""),
+        "availability_minutes_limit": _number_or_none(market_info.get("availability_minutes_limit")),
+        "minutes_role_confirmed": str(market_info.get("minutes_role_confirmed") or "").strip().lower() in {"1", "true", "yes", "confirmed"} or market_info.get("minutes_role_confirmed") is True,
         "calibrated_p_over": None,
         "calibrated_p_under": None,
         "p_push": round(p_push, 5) if pred.p_push is not None else None,
