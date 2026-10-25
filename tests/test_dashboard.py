@@ -240,3 +240,59 @@ def test_official_injury_report_dashboard_action_rejects_invalid_date(monkeypatc
     result = dashboard.api_injury_report(dashboard.GameDateRequest(game_date="2026-02-30"))
     assert result["ok"] is False
     assert called == []
+
+
+
+def test_pregame_workflow_refreshes_injury_and_lineup_sources_for_nba_date(monkeypatch):
+    from src import dashboard
+
+    captured = {}
+    monkeypatch.setattr(dashboard, "_date_already_archived", lambda _: False)
+    def fake_steps(plan):
+        captured["plan"] = plan
+        return {"ok": True, "steps": [], "message": "All requested steps completed."}
+    monkeypatch.setattr(dashboard, "_run_steps", fake_steps)
+
+    request = dashboard.PregameWorkflowRequest(
+        game_date="2026-10-26",
+        nba_game_date="2026-10-25",
+    )
+    result = dashboard.api_pregame_workflow(request)
+
+    assert result["ok"] is True
+    assert captured["plan"] == [
+        ("scripts.import_nba_status", ["--game-date", "2026-10-25"]),
+        ("scripts.fetch_lineups", ["--game-date", "2026-10-25"]),
+        ("scripts.fetch_public_props", []),
+        ("src.predict_slate", ["--lines", "data/prop_lines_public.csv", "--top", "10"]),
+        ("scripts.archive_predictions", ["--game-date", "2026-10-26"]),
+    ]
+    assert "NBA-local game date 2026-10-25" in result["message"]
+    assert "snapshot date 2026-10-26" in result["message"]
+
+
+def test_pregame_workflow_rejects_impossible_nba_date_before_running_steps(monkeypatch):
+    from src import dashboard
+
+    called = []
+    monkeypatch.setattr(dashboard, "_run_steps", lambda plan: called.append(plan) or {"ok": True})
+    monkeypatch.setattr(dashboard, "_date_already_archived", lambda _: False)
+    request = dashboard.PregameWorkflowRequest(
+        game_date="2026-10-26",
+        nba_game_date="2026-02-30",
+    )
+    result = dashboard.api_pregame_workflow(request)
+
+    assert result["ok"] is False
+    assert "real date" in result["message"]
+    assert called == []
+
+
+def test_pregame_workflow_html_explains_separate_event_and_snapshot_dates():
+    from src import dashboard
+
+    html = dashboard.HTML_FILE.read_text(encoding="utf-8")
+    assert 'id="injury-game-date"' in html
+    assert 'id="lineup-game-date"' in html
+    assert "Set the injury-report and lineup dates above to the same NBA-local date" in html
+    assert "nba_game_date:injuryDate" in html
