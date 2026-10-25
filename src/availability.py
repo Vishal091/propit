@@ -85,7 +85,7 @@ def _read_team_report_coverage(
         return {}
     required = {
         "game_date", "reported_at_utc", "team_report_coverage_parsed",
-        "teams_not_yet_submitted_json",
+        "team_submission_markers_resolved", "teams_not_yet_submitted_json",
     }
     if not required.issubset(imports.columns):
         return {}
@@ -104,7 +104,8 @@ def _read_team_report_coverage(
     for game_date, group in imports.groupby("_game_date", sort=False):
         row = group.iloc[-1]
         parsed_flag = str(row.get("team_report_coverage_parsed", "")).strip().casefold()
-        if parsed_flag not in {"true", "1", "yes"}:
+        markers_resolved = str(row.get("team_submission_markers_resolved", "")).strip().casefold()
+        if parsed_flag not in {"true", "1", "yes"} or markers_resolved not in {"true", "1", "yes"}:
             continue
         reported = pd.to_datetime(row.get("reported_at_utc"), utc=True, errors="coerce")
         if pd.isna(reported):
