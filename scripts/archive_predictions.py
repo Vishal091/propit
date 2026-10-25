@@ -142,7 +142,7 @@ def prepare_archive_rows(predictions: pd.DataFrame, game_date: str, snapshot_at_
         "market_consensus_line", "market_line_min", "market_line_max", "market_line_spread",
         "market_rows_at_line", "same_book_no_vig_rows", "best_over_odds_american",
         "best_under_odds_american", "market_snapshot_age_hours", "availability_age_hours",
-        "availability_retrieved_at_utc", "availability_minutes_limit", "lineup_age_hours",
+        "availability_minutes_limit", "lineup_age_hours",
         "minutes_projection_mean", "minutes_projection_std", "minutes_projection_p10", "minutes_projection_p50",
         "minutes_projection_p90", "minutes_last5_mean", "minutes_last10_mean", "minutes_last20_mean",
         "minutes_season_mean", "minutes_previous_season_mean", "minutes_trend_last5_vs_20",
