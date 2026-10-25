@@ -117,6 +117,12 @@ def attach_lineups(
     automated_path = Path(auto_path) if auto_path is not None else manual_path.parent / DEFAULT_AUTO_LINEUP_PATH.name
     source_rows = _read_lineup_source(manual_path, default_confirmation="CONFIRMED")
     source_rows.extend(_read_lineup_source(automated_path, default_confirmation="PROJECTED"))
+    source_rows.sort(
+        key=lambda candidate: (
+            int(candidate.get("_priority") or 0),
+            candidate["_reported"].timestamp() if pd.notna(candidate.get("_reported")) else float("-inf"),
+        )
+    )
 
     statuses: list[str] = []
     gates: list[str] = []
