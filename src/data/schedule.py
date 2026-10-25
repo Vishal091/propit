@@ -57,6 +57,7 @@ ESPN_ABBREVIATION_ALIASES = {
     "SA": "SAS",
     "WSH": "WAS",
     "BRK": "BKN",
+    "UTAH": "UTA",
 }
 
 
