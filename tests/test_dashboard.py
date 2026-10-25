@@ -170,6 +170,36 @@ def test_automated_lineup_dashboard_action_rejects_invalid_date(monkeypatch):
     assert called == []
 
 
+def test_research_slate_view_returns_ev_sorted_unverified_rows(tmp_path, monkeypatch):
+    from src import dashboard
+
+    latest_path = tmp_path / "latest.csv"
+    shortlist_path = tmp_path / "shortlist.csv"
+    pd.DataFrame({
+        "player_name": ["Lower EV", "Higher EV", "No estimate"],
+        "research_status": [
+            "RESEARCH_ONLY_UNVERIFIED", "RESEARCH_ONLY_UNVERIFIED", "RESEARCH_INPUTS_MISSING",
+        ],
+        "research_selected_ev": [0.02, 0.06, None],
+        "research_selected_edge": [0.01, 0.03, None],
+        "research_selected_probability": [0.54, 0.58, None],
+        "research_market_probability": [0.53, 0.55, None],
+        "research_recommended_side": ["OVER", "UNDER", ""],
+        "shortlist_status": ["LINEUP_UNVERIFIED", "AVAILABILITY_UNVERIFIED", "INSUFFICIENT_DATA"],
+    }).to_csv(latest_path, index=False)
+    pd.DataFrame(columns=["player_name", "shortlist_status"]).to_csv(shortlist_path, index=False)
+    monkeypatch.setattr(dashboard, "LATEST", latest_path)
+    monkeypatch.setattr(dashboard, "SHORTLIST", shortlist_path)
+
+    result = dashboard.api_slate(view="research")
+
+    assert result["count"] == 3
+    assert result["rows"][0]["player_name"] == "Higher EV"
+    assert result["rows"][1]["player_name"] == "Lower EV"
+    assert result["diagnostics"]["rows_with_research_estimates"] == 2
+    assert "do not satisfy strict shortlist gates" in result["diagnostics"]["notice"]
+
+
 def test_empty_shortlist_returns_reason_counts_from_scored_markets(tmp_path, monkeypatch):
     from src import dashboard
 
