@@ -85,7 +85,7 @@ input[type=date],select{border:1px solid var(--line);border-radius:9px;backgroun
             </div>
             <div class="action-box"><h3>Official NBA injury report</h3><p>Fetches the latest linked NBA injury-report PDF for the selected NBA-local match date, records the report timestamp and source, and updates the local availability snapshot. It does not assume unlisted players are available.</p><div class="action-row"><label class="field-label">Match date<input type="date" id="injury-game-date"></label><button class="btn btn-primary" data-action="injuries">Fetch official injury report ↗</button></div><p class="muted-cell">Lineups are separate. Use the automated lineup feed below to collect expected and source-confirmed starters. Projected roles are shown for context but cannot satisfy the strict shortlist gate.</p></div>
             <div class="action-box"><h3>Automated NBA lineup feed</h3><p>Fetches the public RotoWire lineup page for the selected NBA-local game date. It stores the source URL, retrieval timestamp, team role, and whether the provider explicitly labels a lineup Confirmed or Expected. Unlabeled lineups are treated as projected; these never overwrite the manually verified lineup ledger.</p><div class="action-row"><label class="field-label">Match date<input type="date" id="lineup-game-date"></label><button class="btn btn-primary" data-action="lineups">Fetch lineup updates ↗</button></div><p class="muted-cell">The free feed may only provide expected starters for some teams. Missing or projected roles remain unverified until a confirmed source is available.</p></div>
-            <div class="action-box"><h3>One-click pregame workflow</h3><p>Refresh public markets → regenerate predictions → archive one snapshot. It requires fresh player availability before releasing a calibrated prop probability. Run this before tip-off; the local lineup snapshot must also be current for a shortlist pick.</p><button class="btn btn-primary" data-action="workflow">Run full pregame workflow ↗</button></div>
+            <div class="action-box"><h3>One-click pregame workflow</h3><p>Refresh the official injury report and lineup feed for the selected NBA-local match date → refresh public markets → regenerate predictions → archive one snapshot. Set the injury-report and lineup dates above to the same NBA-local date; the snapshot date at the top can differ. Expected/projected lineups still do not qualify as confirmed.</p><button class="btn btn-primary" data-action="workflow">Run full pregame workflow ↗</button></div>
           </div>
         </div>
       </div>
@@ -317,13 +317,17 @@ input[type=date],select{border:1px solid var(--line);border-radius:9px;backgroun
     finally{setBusy(false);$("connection-label").textContent="LOCAL WORKSPACE";$("connection-dot").style.background="var(--lime)";}
   }
   async function runWorkflow(){
-    var gameDate=$("workflow-date").value;
-    if(!gameDate){showNotice("Choose the NBA-local game date for this slate first.","error");return;}
+    var snapshotDate=$("workflow-date").value;
+    var injuryDate=$("injury-game-date").value;
+    var lineupDate=$("lineup-game-date").value;
+    if(!snapshotDate){showNotice("Choose a pregame snapshot date first.","error");return;}
+    if(!injuryDate||!lineupDate){showNotice("Choose the NBA-local game date for both the injury report and lineup feed.","error");return;}
+    if(injuryDate!==lineupDate){showNotice("Set the injury-report and lineup dates to the same NBA-local game date before running the full workflow.","error");return;}
     if(busy)return;
-    setBusy(true,"Refreshing public markets, generating predictions, and archiving the pregame snapshot…");
+    setBusy(true,"Refreshing injury report and lineups, markets, predictions, and the pregame snapshot…");
     $("run-log").classList.add("show");
     try{
-      var result=await post("/api/pregame-workflow",{game_date:gameDate});
+      var result=await post("/api/pregame-workflow",{game_date:snapshotDate,nba_game_date:injuryDate});
       showLog(result);
       if(result.ok){
         showNotice(result.message+" The archive is intended for pre-tip-off use.","success");
