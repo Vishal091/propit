@@ -6,6 +6,7 @@ name format differs from the NBA roster. A missing row is never treated as activ
 """
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -69,6 +70,67 @@ def _gate_for_status(status: str) -> str:
     return "UNVERIFIED"
 
 
+def _read_team_report_coverage(
+    imports_path: Path,
+    game_dates: set[str],
+    observed_at: pd.Timestamp,
+    max_age_hours: float,
+) -> dict[str, dict[str, Any]]:
+    """Read fresh report-level coverage metadata, without inventing player statuses."""
+    if not imports_path.exists() or not game_dates:
+        return {}
+    try:
+        imports = pd.read_csv(imports_path, dtype=str).fillna("")
+    except (OSError, pd.errors.ParserError, pd.errors.EmptyDataError, UnicodeDecodeError):
+        return {}
+    required = {
+        "game_date", "reported_at_utc", "team_report_coverage_parsed",
+        "teams_not_yet_submitted_json",
+    }
+    if not required.issubset(imports.columns):
+        return {}
+
+    imports["_game_date"] = imports["game_date"].map(_date_key)
+    imports = imports.loc[imports["_game_date"].isin(game_dates)].copy()
+    if imports.empty:
+        return {}
+    imports["_retrieved"] = pd.to_datetime(
+        imports.get("retrieved_at_utc", imports["reported_at_utc"]),
+        utc=True, errors="coerce",
+    )
+    imports = imports.sort_values("_retrieved", kind="stable")
+
+    coverage: dict[str, dict[str, Any]] = {}
+    for game_date, group in imports.groupby("_game_date", sort=False):
+        row = group.iloc[-1]
+        parsed_flag = str(row.get("team_report_coverage_parsed", "")).strip().casefold()
+        if parsed_flag not in {"true", "1", "yes"}:
+            continue
+        reported = pd.to_datetime(row.get("reported_at_utc"), utc=True, errors="coerce")
+        if pd.isna(reported):
+            continue
+        age = (observed_at - reported).total_seconds() / 3600.0
+        if age < -5 / 60 or age > max_age_hours:
+            continue
+        try:
+            not_submitted_raw = json.loads(row.get("teams_not_yet_submitted_json") or "[]")
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if not isinstance(not_submitted_raw, list):
+            continue
+        not_submitted = {
+            str(team).strip().upper() for team in not_submitted_raw if str(team).strip()
+        }
+        coverage[str(game_date)] = {
+            "not_yet_submitted_teams": not_submitted,
+            "reported_at_utc": reported.isoformat().replace("+00:00", "Z"),
+            "retrieved_at_utc": str(row.get("retrieved_at_utc") or ""),
+            "report_url": str(row.get("report_url") or ""),
+            "age_hours": max(0.0, age),
+        }
+    return coverage
+
+
 def attach_availability(
     rows: pd.DataFrame,
     path: str | Path = DEFAULT_AVAILABILITY_PATH,
@@ -118,6 +180,17 @@ def attach_availability(
         source = source.sort_values("_reported", na_position="first", kind="stable")
         source_rows = source.to_dict(orient="records")
 
+    target_dates = {
+        _date_key(value) for value in result.get("match_date", pd.Series(dtype="object")).tolist()
+    }
+    target_dates.discard("")
+    team_coverage = _read_team_report_coverage(
+        file_path.parent / "injury_report_imports.csv",
+        target_dates,
+        observed_at,
+        max_age_hours,
+    )
+
     statuses: list[str] = []
     gates: list[str] = []
     reasons: list[str] = []
@@ -148,9 +221,33 @@ def attach_availability(
         exact = matches[-1] if matches else None
 
         if exact is None:
+            coverage = team_coverage.get(game_date) if team else None
+            if coverage is not None:
+                report_source = str(coverage.get("report_url") or "")
+                report_stamp = str(coverage.get("reported_at_utc") or "")
+                report_age = float(coverage.get("age_hours", 0.0))
+                if team in coverage["not_yet_submitted_teams"]:
+                    statuses.append("NOT_YET_SUBMITTED")
+                    gates.append("UNVERIFIED")
+                    reasons.append(
+                        "The latest official injury report explicitly marks this team's report as NOT YET SUBMITTED."
+                    )
+                else:
+                    statuses.append("NOT_LISTED")
+                    gates.append("CLEAR")
+                    reasons.append(
+                        "No player-specific issue is listed in the fresh official report, and this team is not marked "
+                        "NOT YET SUBMITTED. This is not an explicit Available designation; verify again near tip-off."
+                    )
+                sources.append(report_source)
+                timestamps.append(report_stamp)
+                ages.append(round(report_age, 2))
+                retrieved_values.append(str(coverage.get("retrieved_at_utc") or ""))
+                limits.append(None)
+                continue
             statuses.append("UNKNOWN")
             gates.append("UNVERIFIED")
-            reasons.append("No availability record matched this player, team, and scheduled match date.")
+            reasons.append("No availability record matched this player, team, and scheduled match date; report coverage is unavailable.")
             sources.append("")
             timestamps.append("")
             ages.append(None)
