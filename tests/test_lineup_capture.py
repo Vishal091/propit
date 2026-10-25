@@ -30,6 +30,9 @@ def test_build_snapshot_rows_stamps_source_and_limits():
     assert set(rows["starting_status"]) == {"STARTER", "BENCH"}
     assert rows["reported_at_utc"].nunique() == 1
     assert rows["reported_at_utc"].iloc[0] == "2026-10-25T14:30:00Z"
+    assert set(rows["confirmation_status"]) == {"CONFIRMED"}
+    assert set(rows["confidence_label"]) == {"MANUALLY_VERIFIED"}
+    assert set(rows["source_status"]) == {"Operator-verified starter/bench"}
     assert pd.isna(rows.loc[rows["player_name"] == "Jayson Tatum", "minutes_limit"].iloc[0])
     assert rows.loc[rows["player_name"] == "Derrick White", "minutes_limit"].iloc[0] == 20
 
