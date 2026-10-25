@@ -1,9 +1,16 @@
 from __future__ import annotations
 
+from urllib.parse import urlsplit
+
 import pandas as pd
 import pytest
+import requests
 
-from src.data.lineup_sources import parse_rotowire_lineups
+from src.data.lineup_sources import (
+    LineupSourceUnavailableError,
+    fetch_rotowire_lineups,
+    parse_rotowire_lineups,
+)
 
 
 def _side(side: str, team: str, status: str, players: list[tuple[str, str]]) -> str:
@@ -74,3 +81,83 @@ def test_rotowire_parser_fails_when_markup_has_no_lineup_cards():
     html = '<h1>NBA Daily Starting Lineups</h1><p>Starting lineups for October 25, 2026</p>'
     with pytest.raises(ValueError, match="markup was not found"):
         parse_rotowire_lineups(html, game_date="2026-10-25")
+
+
+
+class _FakeResponse:
+    def __init__(self, text: str, url: str, status_code: int = 200):
+        self.text = text
+        self.url = url
+        self.status_code = status_code
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            raise requests.HTTPError(f"HTTP {self.status_code} for {self.url}")
+
+
+class _FakeSession:
+    def __init__(self, *, html: str, fail_hosts: set[str]):
+        self.html = html
+        self.fail_hosts = fail_hosts
+        self.calls: list[str] = []
+
+    def get(self, url: str, **kwargs):
+        host = urlsplit(url).netloc
+        self.calls.append(host)
+        if host in self.fail_hosts:
+            raise requests.ConnectionError(f"Failed to resolve {host}")
+        return _FakeResponse(self.html, url)
+
+
+def test_fetch_rotowire_uses_public_host_fallback_after_dns_failure(sample_lineup_html):
+    session = _FakeSession(
+        html=sample_lineup_html,
+        fail_hosts={"www.rotowire.com", "rotowire.com"},
+    )
+
+    frame, metadata = fetch_rotowire_lineups(
+        "2026-10-25",
+        session=session,
+    )
+
+    assert len(frame) == 10
+    assert session.calls[:3] == [
+        "www.rotowire.com", "rotowire.com", "aws-prod-web9.rotowire.com",
+    ]
+    assert metadata["fallback_host_used"] is True
+    assert metadata["source"].startswith("https://aws-prod-web9.rotowire.com/")
+    assert metadata["attempted_hosts"] == session.calls[:3]
+
+
+def test_fetch_rotowire_does_not_fail_over_to_unverified_wrong_date(sample_lineup_html):
+    class StaleFirstHostSession(_FakeSession):
+        def get(self, url: str, **kwargs):
+            host = urlsplit(url).netloc
+            self.calls.append(host)
+            if host == "www.rotowire.com":
+                return _FakeResponse(
+                    '<h1>NBA Daily Starting Lineups</h1><p>Starting lineups for October 24, 2026</p>',
+                    url,
+                )
+            return _FakeResponse(self.html, url)
+
+    session = StaleFirstHostSession(html=sample_lineup_html, fail_hosts=set())
+    frame, metadata = fetch_rotowire_lineups("2026-10-25", session=session)
+    assert len(frame) == 10
+    assert metadata["fallback_host_used"] is True
+    assert metadata["source"].startswith("https://rotowire.com/")
+
+
+def test_fetch_rotowire_reports_all_dns_failures_clearly_without_traceback():
+    session = _FakeSession(html="", fail_hosts={
+        "www.rotowire.com", "rotowire.com", "aws-prod-web9.rotowire.com", "web7.rotowire.com",
+    })
+
+    with pytest.raises(LineupSourceUnavailableError) as exc:
+        fetch_rotowire_lineups("2026-10-25", session=session)
+
+    message = str(exc.value)
+    assert "Hosts tried:" in message
+    assert "Resolve-DnsName www.rotowire.com" in message
+    assert "Existing lineup snapshots were left unchanged" in message
+    assert len(session.calls) == 4
