@@ -83,7 +83,8 @@ input[type=date],select{border:1px solid var(--line);border-radius:9px;backgroun
               <div class="pipe-step"><div class="pipe-icon">3</div><div class="pipe-copy"><strong><span class="status-light" id="light-history"></span>Pregame history</strong><span id="text-history">Archive a slate before tip-off.</span></div></div>
               <div class="pipe-step"><div class="pipe-icon">4</div><div class="pipe-copy"><strong><span class="status-light" id="light-calibration"></span>Holdout evaluation</strong><span id="text-calibration">Needs a sufficient sample of settled predictions.</span></div></div>
             </div>
-            <div class="action-box"><h3>Official NBA injury report</h3><p>Fetches the latest linked NBA injury-report PDF for the selected NBA-local match date, records the report timestamp and source, and updates the local availability snapshot. It does not assume unlisted players are available.</p><div class="action-row"><label class="field-label">Match date<input type="date" id="injury-game-date"></label><button class="btn btn-primary" data-action="injuries">Fetch official injury report ↗</button></div><p class="muted-cell">Lineups are separate: verify a trusted starting-five source, then import STARTER/BENCH rows using the documented CSV command. Missing lineups remain unverified.</p></div>
+            <div class="action-box"><h3>Official NBA injury report</h3><p>Fetches the latest linked NBA injury-report PDF for the selected NBA-local match date, records the report timestamp and source, and updates the local availability snapshot. It does not assume unlisted players are available.</p><div class="action-row"><label class="field-label">Match date<input type="date" id="injury-game-date"></label><button class="btn btn-primary" data-action="injuries">Fetch official injury report ↗</button></div><p class="muted-cell">Lineups are separate. Use the automated lineup feed below to collect expected and source-confirmed starters. Projected roles are shown for context but cannot satisfy the strict shortlist gate.</p></div>
+            <div class="action-box"><h3>Automated NBA lineup feed</h3><p>Fetches the public RotoWire lineup page for the selected NBA-local game date. It stores the source URL, retrieval timestamp, team role, and whether the provider explicitly labels a lineup Confirmed or Expected. Unlabeled lineups are treated as projected; these never overwrite the manually verified lineup ledger.</p><div class="action-row"><label class="field-label">Match date<input type="date" id="lineup-game-date"></label><button class="btn btn-primary" data-action="lineups">Fetch lineup updates ↗</button></div><p class="muted-cell">The free feed may only provide expected starters for some teams. Missing or projected roles remain unverified until a confirmed source is available.</p></div>
             <div class="action-box"><h3>One-click pregame workflow</h3><p>Refresh public markets → regenerate predictions → archive one snapshot. It requires fresh player availability before releasing a calibrated prop probability. Run this before tip-off; the local lineup snapshot must also be current for a shortlist pick.</p><button class="btn btn-primary" data-action="workflow">Run full pregame workflow ↗</button></div>
           </div>
         </div>
@@ -299,6 +300,7 @@ input[type=date],select{border:1px solid var(--line);border-radius:9px;backgroun
       if(action==="workflow") runWorkflow();
       else if(action==="refresh") doAction("/api/refresh",null,"Refreshing markets and rebuilding predictions…");
       else if(action==="injuries") refreshInjuryReport();
+      else if(action==="lineups") refreshLineups();
       else if(action==="settle") runSettlement();
       else if(action==="calibrate") doAction("/api/calibrate",null,"Evaluating historical probabilities…",true);
     });
@@ -334,6 +336,11 @@ input[type=date],select{border:1px solid var(--line);border-radius:9px;backgroun
     var gameDate=$("injury-game-date").value;
     if(!gameDate){showNotice("Choose the NBA-local match date for the injury report first.","error");return;}
     await doAction("/api/injury-report",{game_date:gameDate},"Fetching the official NBA injury-report PDF and updating the availability snapshot…");
+  }
+  async function refreshLineups(){
+    var gameDate=$("lineup-game-date").value;
+    if(!gameDate){showNotice("Choose the NBA-local match date for lineup collection first.","error");return;}
+    await doAction("/api/lineups",{game_date:gameDate},"Fetching the public lineup feed and rebuilding predictions with projected/confirmed provenance…");
   }
   async function runSettlement(){
     var gameDate=$("settle-date").value;
@@ -517,7 +524,7 @@ input[type=date],select{border:1px solid var(--line);border-radius:9px;backgroun
     }
   }
   async function initialize(){
-    $("workflow-date").value=localDate();$("settle-date").value=localDate();$("injury-game-date").value=localDate();
+    $("workflow-date").value=localDate();$("settle-date").value=localDate();$("injury-game-date").value=localDate();$("lineup-game-date").value=localDate();
     await refreshView();await loadHistory();await loadCalibration();
   }
   initialize();
