@@ -6,6 +6,7 @@ import pandas as pd
 import pytest
 
 from src.data.injury_report import (
+    extract_team_submission_metadata,
     parse_injury_table_rows,
     positioned_words_to_rows,
     report_timestamp_from_url,
@@ -80,6 +81,19 @@ def test_parser_does_not_backfill_absent_players_as_available():
     )
     assert parsed.empty
 
+
+
+def test_report_metadata_preserves_explicit_not_yet_submitted_teams():
+    rows = [[
+        ["Date", "Time (ET)", "Game", "Team", "Player", "Status", "Injury/Illness"],
+        ["10/25/2026", "07:00 (ET)", "BOS@NYK", "Boston Celtics", "Tatum, Jayson", "Questionable", "Wrist"],
+        ["", "", "", "New York Knicks", "", "", "NOT YET SUBMITTED"],
+    ]]
+    metadata = extract_team_submission_metadata(rows, [])
+
+    assert metadata["team_report_coverage_parsed"] is True
+    assert metadata["teams_not_yet_submitted"] == ["NYK"]
+    assert metadata["team_submission_markers_count"] == 1
 
 
 def test_positioned_word_fallback_reconstructs_official_seven_columns():
