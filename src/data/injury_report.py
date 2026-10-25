@@ -227,6 +227,49 @@ def positioned_words_to_rows(words: list[dict[str, Any]], page_width: float) -> 
     return rows
 
 
+def extract_team_submission_metadata(
+    tables: list[list[list[Any]]],
+    positioned_pages: list[list[list[str]]],
+) -> dict[str, Any]:
+    """Capture explicit NOT YET SUBMITTED team markers from the raw report rows.
+
+    This does not label any player Available. It records team-level report
+    coverage so downstream matching can distinguish an unlisted player on a
+    submitted report from a team whose report is explicitly pending.
+    """
+    not_submitted: set[str] = set()
+    marker_count = 0
+    valid_statuses = {"AVAILABLE", "PROBABLE", "QUESTIONABLE", "DOUBTFUL", "OUT"}
+    datasets = [*tables, *positioned_pages]
+    for table in datasets:
+        current_team = ""
+        for raw_row in table:
+            if not raw_row:
+                continue
+            values = [_clean(value) for value in raw_row]
+            team_cell = _row_value(raw_row, 3)
+            if team_cell and team_cell.upper() in _TEAM_ABBREVIATIONS:
+                current_team = _TEAM_ABBREVIATIONS[team_cell.upper()]
+            joined = " ".join(values).upper()
+            if "NOT YET SUBMITTED" in joined:
+                marker_count += 1
+                if current_team:
+                    not_submitted.add(current_team)
+                continue
+            # Touch the expected status/player fields to make clear that this
+            # parser is operating on the seven-column NBA report layout.
+            player_name = _row_value(raw_row, 4)
+            status = _row_value(raw_row, 5).upper()
+            if player_name and status in valid_statuses and current_team:
+                continue
+
+    return {
+        "teams_not_yet_submitted": sorted(not_submitted),
+        "team_submission_markers_count": marker_count,
+        "team_report_coverage_parsed": bool(tables or positioned_pages),
+    }
+
+
 def fetch_official_injury_report(
     game_date: str | date,
     *,
@@ -318,7 +361,9 @@ def fetch_official_injury_report(
             f"table_count={len(extracted_tables)}; positioned_pages={len(positioned_rows)}; "
             f"text_preview={preview[:500]!r}. This diagnostic will help fix any layout change."
         )
+    team_submission_meta = extract_team_submission_metadata(extracted_tables, positioned_rows)
     meta = {
+        **team_submission_meta,
         "game_date": target.isoformat(),
         "report_page_url": page_url,
         "report_url": report_url,
