@@ -238,7 +238,10 @@ def extract_team_submission_metadata(
     submitted report from a team whose report is explicitly pending.
     """
     not_submitted: set[str] = set()
-    datasets = [*tables, *positioned_pages]
+    unresolved_marker = False
+    # Prefer coordinates, which preserve the official seven-column layout.
+    # Use table output only if positional extraction yielded no pages at all.
+    datasets = positioned_pages if positioned_pages else tables
     for table in datasets:
         current_team = ""
         for raw_row in table:
@@ -249,13 +252,17 @@ def extract_team_submission_metadata(
             if team_cell and team_cell.upper() in _TEAM_ABBREVIATIONS:
                 current_team = _TEAM_ABBREVIATIONS[team_cell.upper()]
             joined = " ".join(values).upper()
-            if "NOT YET SUBMITTED" in joined and current_team:
-                not_submitted.add(current_team)
+            if "NOT YET SUBMITTED" in joined:
+                if current_team:
+                    not_submitted.add(current_team)
+                else:
+                    unresolved_marker = True
 
     return {
         "teams_not_yet_submitted": sorted(not_submitted),
         "team_submission_markers_count": len(not_submitted),
-        "team_report_coverage_parsed": bool(tables or positioned_pages),
+        "team_submission_markers_resolved": not unresolved_marker,
+        "team_report_coverage_parsed": bool(datasets),
     }
 
 
