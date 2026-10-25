@@ -99,7 +99,7 @@ For research/debugging only, it is possible to inspect candidates without a veri
 
     .\\.venv\\Scripts\\python.exe -m src.predict_slate --lines data\\prop_lines_public.csv --allow-unverified-availability --allow-unverified-lineup
 
-Those overrides relax shortlist gates; they do **not** turn the missing statuses into verified facts. Never use that mode to treat an unverified candidate as a live bet. Lineups remain operator-entered; there is no supported free, reliable source currently wired to auto-confirm all five starters, coach rotation changes, or injury-return minute limits. The official injury importer stores the report's own publication time; the model also stores the time it was retrieved, but you still need to refresh close to tip-off.
+Those overrides relax shortlist gates; they do **not** turn the missing statuses into verified facts. Never use that mode to treat an unverified candidate as a live bet. The automated RotoWire collector can import expected lineups and any team entries the page explicitly labels Confirmed Lineup, but it may not expose confirmed labels for every matchup and does not infer bench roles, coach rotation changes, or injury-return minute limits. Projected roles remain non-confirmed; use the operator-verified ledger for official/team-confirmed roles that the public feed does not establish. The official injury importer stores the report's own publication time; the model also stores the time it was retrieved, but you still need to refresh close to tip-off.
 
 ## Probability and risk controls
 
