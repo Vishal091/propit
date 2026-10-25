@@ -19,7 +19,9 @@ DEFAULT_HISTORY = Path("data/player_lineups_history.csv")
 INPUT_COLUMNS = {"player_id", "player_name", "team_abbreviation", "starting_status"}
 OUTPUT_COLUMNS = [
     "player_id", "player_name", "team_abbreviation", "match_date",
-    "starting_status", "reported_at_utc", "source", "reason", "minutes_limit",
+    "starting_status", "confirmation_status", "confidence_label", "source_status",
+    "reported_at_utc", "source_reported_at_utc", "retrieved_at_utc",
+    "source", "reason", "minutes_limit",
 ]
 
 
@@ -88,7 +90,13 @@ def build_snapshot_rows(
         raise ValueError("Duplicate player/team rows found in the input file.")
 
     frame["match_date"] = selected_date
+    frame["starting_status"] = frame["starting_status"].map(normalize_lineup_status)
+    frame["confirmation_status"] = "CONFIRMED"
+    frame["confidence_label"] = "MANUALLY_VERIFIED"
+    frame["source_status"] = "Operator-verified starter/bench"
     frame["reported_at_utc"] = stamped
+    frame["source_reported_at_utc"] = ""
+    frame["retrieved_at_utc"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     frame["source"] = source_text
     return frame[OUTPUT_COLUMNS].reset_index(drop=True)
 
