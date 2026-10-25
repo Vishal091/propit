@@ -5,7 +5,12 @@ import pandas as pd
 import pytest
 
 from src.features.build import build_team_game_metrics, feature_columns
-from src.predict_slate import _build_latest_features, _decorate_and_rank_candidates, _validate_model_feature_context
+from src.predict_slate import (
+    _build_latest_features,
+    _calibrate_market_probabilities,
+    _decorate_and_rank_candidates,
+    _validate_model_feature_context,
+)
 
 
 def _row(game_id, day, player_id, player_name, team_id, opponent_id, points, matchup):
@@ -138,6 +143,66 @@ def test_retrained_model_with_varying_opponent_features_is_accepted():
         }
 
     _validate_model_feature_context(CurrentBundle(), "AST")
+
+
+def test_research_estimate_is_available_but_strict_probability_stays_withheld():
+    rows = pd.DataFrame([
+        {
+            "player_name": "Unverified Lineup Player",
+            "availability_gate": "CLEAR",
+            "availability_status": "NOT_LISTED",
+            "lineup_gate": "UNVERIFIED",
+            "lineup_status": "STARTER",
+            "minutes_projection_mean": 30.0,
+            "minutes_projection_std": 4.5,
+            "minutes_sample_size": 20,
+            "minutes_stable": True,
+            "minutes_role_confirmed": False,
+            "model_p_over_raw": 0.70,
+            "model_p_under_raw": 0.30,
+            "market_no_vig_p_over": 0.55,
+            "market_no_vig_p_under": 0.45,
+            "odds_over_american": -110,
+            "odds_under_american": -110,
+            "p_push": 0.0,
+        },
+        {
+            "player_name": "Unverified Availability Player",
+            "availability_gate": "UNVERIFIED",
+            "availability_status": "UNKNOWN",
+            "lineup_gate": "CLEAR",
+            "lineup_status": "STARTER",
+            "minutes_projection_mean": 30.0,
+            "minutes_projection_std": 4.5,
+            "minutes_sample_size": 20,
+            "minutes_stable": True,
+            "minutes_role_confirmed": True,
+            "model_p_over_raw": 0.65,
+            "model_p_under_raw": 0.35,
+            "market_no_vig_p_over": 0.52,
+            "market_no_vig_p_under": 0.48,
+            "odds_over_american": -110,
+            "odds_under_american": -110,
+            "p_push": 0.0,
+        },
+    ])
+
+    result = _calibrate_market_probabilities(rows)
+
+    lineup_row = result.loc[0]
+    assert lineup_row["probability_gate_status"] == "INSUFFICIENT_LINEUP_DATA"
+    assert pd.isna(lineup_row["model_p_over"])
+    assert lineup_row["research_status"] == "RESEARCH_ONLY_UNVERIFIED"
+    assert lineup_row["research_model_p_over"] == pytest.approx(0.5725)
+    assert lineup_row["research_model_p_under"] == pytest.approx(0.4275)
+    assert lineup_row["research_recommended_side"] in {"OVER", "UNDER"}
+    assert lineup_row["research_selected_ev"] is not None
+
+    availability_row = result.loc[1]
+    assert availability_row["probability_gate_status"] == "INSUFFICIENT_AVAILABILITY_DATA"
+    assert pd.isna(availability_row["model_p_over"])
+    assert availability_row["research_status"] == "RESEARCH_ONLY_UNVERIFIED"
+    assert availability_row["research_model_p_over"] == pytest.approx(0.5395)
 
 
 def test_empty_shortlist_preserves_schema_for_dashboard_csv():
