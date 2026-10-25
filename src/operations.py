@@ -313,32 +313,64 @@ def build_health_report(root: str | Path = DEFAULT_ROOT, now: str | datetime | p
             ))
 
     lineup_path = data / "player_lineups.csv"
+    auto_lineup_path = data / "player_lineups_auto.csv"
     lineups, lineups_error = _csv_read(lineup_path)
+    auto_lineups, auto_lineups_error = _csv_read(auto_lineup_path)
+    auto_fresh_confirmed = 0
+    auto_fresh_projected = 0
+    auto_lineup_age = None
+    if auto_lineups_error is None and auto_lineups is not None and not auto_lineups.empty:
+        auto_lineup_age, _ = _timestamp_age(auto_lineups, ("reported_at_utc",), current)
+        auto_status = auto_lineups.get("starting_status", pd.Series("", index=auto_lineups.index)).fillna("").astype(str).str.upper()
+        auto_confirmation = auto_lineups.get(
+            "confirmation_status", pd.Series("PROJECTED", index=auto_lineups.index)
+        ).fillna("PROJECTED").astype(str).str.upper()
+        auto_stamps = pd.to_datetime(auto_lineups.get("reported_at_utc", pd.Series("", index=auto_lineups.index)), utc=True, errors="coerce")
+        auto_ages = (current - auto_stamps).dt.total_seconds() / 3600.0
+        auto_fresh = auto_stamps.notna() & auto_ages.ge(-5 / 60) & auto_ages.le(MAX_AVAILABILITY_AGE_HOURS)
+        auto_role_valid = auto_status.isin(["STARTER", "BENCH"])
+        auto_fresh_confirmed = auto_fresh & auto_role_valid & auto_confirmation.eq("CONFIRMED")
+        auto_fresh_projected_mask = auto_fresh & auto_role_valid & ~auto_confirmation.eq("CONFIRMED")
+        auto_fresh_confirmed = int(auto_fresh_confirmed.sum())
+        auto_fresh_projected = int(auto_fresh_projected_mask.sum())
+    auto_summary = (
+        f" Automated feed: {auto_fresh_confirmed} fresh source-confirmed roles, "
+        f"{auto_fresh_projected} fresh projected roles; projections never satisfy the strict gate."
+        if auto_lineups_error is None and auto_lineups is not None and not auto_lineups.empty
+        else " Automated lineup feed has not been imported yet."
+    )
     if lineups_error == "missing":
-        checks.append(_check("Starter/bench snapshots", "WARN", "No verified player_lineups.csv snapshot. Shortlist picks require fresh explicit STARTER/BENCH statuses.", path=lineup_path))
+        checks.append(_check(
+            "Starter/bench snapshots", "WARN",
+            "No operator-verified player_lineups.csv snapshot." + auto_summary,
+            path=lineup_path,
+            age_hours=auto_lineup_age,
+            rows=auto_fresh_confirmed + auto_fresh_projected,
+        ))
     elif lineups_error:
-        checks.append(_check("Starter/bench snapshots", "ERROR", lineups_error, path=lineup_path))
+        checks.append(_check("Starter/bench snapshots", "ERROR", lineups_error + auto_summary, path=lineup_path, age_hours=auto_lineup_age))
     elif lineups is not None:
         lineup_age, dated_lineup_rows = _timestamp_age(lineups, ("reported_at_utc",), current)
         statuses = lineups.get("starting_status", pd.Series("", index=lineups.index)).fillna("").astype(str).str.upper()
-        valid_status = statuses.isin(["STARTER", "BENCH"])
+        confirmation = lineups.get("confirmation_status", pd.Series("CONFIRMED", index=lineups.index)).fillna("CONFIRMED").astype(str).str.upper()
+        valid_status = statuses.isin(["STARTER", "BENCH"]) & confirmation.eq("CONFIRMED")
         fresh_status_count = 0
         if "reported_at_utc" in lineups.columns:
             stamps = pd.to_datetime(lineups["reported_at_utc"], utc=True, errors="coerce")
             fresh = stamps.notna() & ((current - stamps).dt.total_seconds() >= -(5 / 60) * 3600) & ((current - stamps).dt.total_seconds() <= MAX_AVAILABILITY_AGE_HOURS * 3600)
             fresh_status_count = int((fresh & valid_status).sum())
         if lineups.empty:
-            status, detail = "WARN", "Lineup snapshot contains headers only."
+            status, detail = "WARN", "Operator-verified lineup snapshot contains headers only."
         elif lineup_age is None:
             status, detail = "WARN", "No valid lineup report timestamp; starter/bench data is not current."
         elif lineup_age < -5 / 60:
             status, detail = "WARN", "Lineup timestamp is in the future; check the source time and system clock."
         elif lineup_age > MAX_AVAILABILITY_AGE_HOURS:
-            status, detail = "WARN", f"Newest lineup snapshot is {lineup_age:.1f} hours old; limit is {MAX_AVAILABILITY_AGE_HOURS:.0f} hours."
+            status, detail = "WARN", f"Newest verified lineup snapshot is {lineup_age:.1f} hours old; limit is {MAX_AVAILABILITY_AGE_HOURS:.0f} hours."
         else:
             status = "OK" if fresh_status_count == len(lineups) and len(lineups) > 0 else "WARN"
-            detail = f"{fresh_status_count}/{len(lineups)} rows have a fresh timestamp and explicit STARTER/BENCH status."
-        checks.append(_check("Starter/bench snapshots", status, detail, path=lineup_path, age_hours=lineup_age, rows=len(lineups)))
+            detail = f"{fresh_status_count}/{len(lineups)} rows have a fresh timestamp and explicit confirmed STARTER/BENCH status."
+        checks.append(_check("Starter/bench snapshots", status, detail + auto_summary, path=lineup_path, age_hours=lineup_age, rows=len(lineups)))
 
     imports_path = data / "injury_report_imports.csv"
     imports, imports_error = _csv_read(imports_path)
