@@ -82,11 +82,11 @@ def test_calibration_shrinks_toward_market_and_keeps_push_separate():
     }])
     scored = _calibrate_market_probabilities(frame).iloc[0]
     assert scored["calibration_model_weight"] == pytest.approx(0.40)
-    assert scored["calibrated_p_over"] == pytest.approx(0.56)
-    assert scored["calibrated_p_under"] == pytest.approx(0.44)
+    assert scored["calibrated_p_over"] == pytest.approx(0.54)
+    assert scored["calibrated_p_under"] == pytest.approx(0.46)
     assert scored["p_push"] == pytest.approx(0.10)
     assert scored["probability_gate_status"] == "CALIBRATED"
-    assert scored["ev_over_per_1_unit"] == pytest.approx(0.062)
+    assert scored["ev_over_per_1_unit"] == pytest.approx(0.0278, abs=1e-4)
 
 
 def test_raw_probability_cap_breach_is_not_silently_clipped():
@@ -103,8 +103,8 @@ def test_raw_probability_cap_breach_is_not_silently_clipped():
         "minutes_projection_std": 5.0,
         "minutes_sample_size": 20,
         "minutes_stable": False,
-        "lineup_gate": "UNVERIFIED",
-        "minutes_role_confirmed": False,
+        "lineup_gate": "CLEAR",
+        "minutes_role_confirmed": True,
         "odds_over_american": -110,
         "odds_under_american": -110,
     }])
@@ -206,3 +206,20 @@ def test_missing_injury_or_minutes_history_withholds_calibrated_probability():
     scored_minutes = _calibrate_market_probabilities(frame).iloc[0]
     assert pd.isna(scored_minutes["calibrated_p_over"])
     assert scored_minutes["probability_gate_status"] == "INSUFFICIENT_MINUTES_DATA"
+
+
+
+def test_missing_lineup_withholds_probability_even_with_minutes_history():
+    frame = pd.DataFrame([{
+        "model_p_over": 0.60, "model_p_under": 0.40,
+        "model_p_over_raw": 0.60, "model_p_under_raw": 0.40,
+        "market_no_vig_p_over": 0.50, "market_no_vig_p_under": 0.50,
+        "p_push": 0.0, "availability_gate": "CLEAR",
+        "minutes_projection_mean": 31.0, "minutes_projection_std": 4.0,
+        "minutes_sample_size": 22, "minutes_stable": False,
+        "lineup_gate": "UNVERIFIED", "minutes_role_confirmed": False,
+        "odds_over_american": -110, "odds_under_american": -110,
+    }])
+    row = _calibrate_market_probabilities(frame).iloc[0]
+    assert pd.isna(row["calibrated_p_over"])
+    assert row["probability_gate_status"] == "INSUFFICIENT_LINEUP_DATA"
