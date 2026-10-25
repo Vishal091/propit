@@ -422,10 +422,10 @@ def test_pending_confirmation_prioritizes_positive_signals_and_labels_watch_only
     assert result["rows"][0]["player_name"] == "Test Player"
     assert result["rows"][0]["pending_rank"] == 1
     assert result["rows"][0]["pending_label"] == "POSITIVE RESEARCH SIGNAL"
-    assert result["rows"][1]["player_name"] == "Negative EV"
-    assert result["rows"][1]["pending_label"] == "WATCH ONLY · EV NOT POSITIVE"
-    assert result["rows"][2]["player_name"] == "Low research probability"
-    assert result["rows"][2]["pending_label"] == "WATCH ONLY · BELOW PROBABILITY THRESHOLD"
+    assert result["rows"][1]["player_name"] == "Low research probability"
+    assert result["rows"][1]["pending_label"] == "WATCH ONLY · BELOW PROBABILITY THRESHOLD"
+    assert result["rows"][2]["player_name"] == "Negative EV"
+    assert result["rows"][2]["pending_label"] == "WATCH ONLY · EV NOT POSITIVE"
     assert result["diagnostics"]["scored_rows"] == 6
     assert result["diagnostics"]["evidence_blocked_rows"] == 4
     assert result["diagnostics"]["positive_research_signal_rows"] == 1
