@@ -244,12 +244,37 @@ def _shortlist_diagnostics(frame: pd.DataFrame, *, limit: int = 5) -> dict[str, 
 
 
 @app.get("/api/slate")
-def api_slate(view: str = Query(default="shortlist", pattern="^(shortlist|all)$")) -> dict[str, Any]:
+def api_slate(view: str = Query(default="shortlist", pattern="^(shortlist|all|research)$")) -> dict[str, Any]:
     path = SHORTLIST if view == "shortlist" else LATEST
     frame = _read_csv(path)
+    diagnostics: dict[str, Any] = {}
+    if view == "research" and not frame.empty:
+        if "research_selected_ev" in frame.columns:
+            frame["_research_ev_sort"] = pd.to_numeric(frame["research_selected_ev"], errors="coerce")
+            frame["_research_edge_sort"] = pd.to_numeric(frame.get("research_selected_edge"), errors="coerce")
+            frame = frame.sort_values(
+                ["_research_ev_sort", "_research_edge_sort"],
+                ascending=[False, False], na_position="last", kind="stable",
+            ).drop(columns=["_research_ev_sort", "_research_edge_sort"])
+            available = int(pd.to_numeric(frame.get("research_selected_ev"), errors="coerce").notna().sum())
+            diagnostics = {
+                "scored_rows": int(len(frame)),
+                "rows_with_research_estimates": available,
+                "rows_without_research_estimates": int(len(frame) - available),
+                "notice": "Research estimates are exploratory, use only 15% raw-model weight with 85% compatible no-vig market weight, and do not satisfy strict shortlist gates.",
+            }
+        else:
+            diagnostics = {
+                "scored_rows": int(len(frame)),
+                "rows_with_research_estimates": 0,
+                "rows_without_research_estimates": int(len(frame)),
+                "notice": "Research columns are not present in this saved snapshot. Click Refresh & score to regenerate predictions with the research view enabled.",
+            }
     result = {"view": view, "count": int(len(frame)), "rows": _records(frame.head(500))}
     if view == "shortlist" and frame.empty:
         result["diagnostics"] = _shortlist_diagnostics(_read_csv(LATEST))
+    if diagnostics:
+        result["diagnostics"] = diagnostics
     return result
 
 
