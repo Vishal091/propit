@@ -131,6 +131,21 @@ def test_team_pending_markers_are_filtered_to_target_game_date():
     assert metadata["team_submission_markers_resolved"] is True
 
 
+def test_pending_marker_on_next_pdf_page_inherits_only_report_date():
+    first_page = [[
+        ["10/25/2026", "07:00 (ET)", "MEM@SAC", "Memphis Grizzlies", "Coward, Cedric", "Questionable", "Wrist"],
+    ]]
+    second_page = [[
+        ["", "", "", "Sacramento Kings", "", "NOT YET SUBMITTED", ""],
+    ]]
+    metadata = extract_team_submission_metadata(
+        [], [*first_page, *second_page], target_date="2026-10-25"
+    )
+
+    assert metadata["teams_not_yet_submitted"] == ["SAC"]
+    assert metadata["team_submission_markers_resolved"] is True
+
+
 def test_positioned_word_fallback_reconstructs_official_seven_columns():
     words = []
     def add(top, x0, text):
