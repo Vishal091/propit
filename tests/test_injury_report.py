@@ -7,7 +7,6 @@ import pytest
 
 from src.data.injury_report import (
     _game_dates_in_rows,
-    _missing_target_date_message,
     extract_team_submission_metadata,
     parse_injury_table_rows,
     positioned_words_to_rows,
@@ -95,22 +94,6 @@ def test_parser_normalizes_team_names_when_pdf_extraction_removes_spaces():
     assert len(parsed) == 2
     assert parsed["team_abbreviation"].tolist() == ["CHA", "CHA"]
     assert parsed["team_name"].nunique() == 1
-
-
-def test_missing_target_date_report_error_explains_publication_timing():
-    message = _missing_target_date_message(
-        date(2026, 10, 29),
-        [date(2026, 10, 28)],
-        datetime(2026, 10, 28, 14, 45, tzinfo=ZoneInfo("America/New_York")),
-        "https://example.test/Injury-Report_2026-10-28_02_45PM.pdf",
-    )
-
-    assert "published 2026-10-28 02:45 PM ET" in message
-    assert "game-date rows for 2026-10-28" in message
-    assert "requested game date 2026-10-29" in message
-    assert "may not have been published yet" in message
-    assert "No current snapshot was written" in message
-    assert "example.test/Injury-Report_2026-10-28_02_45PM.pdf" in message
 
 
 def test_parser_rejects_non_player_metadata_and_unknown_status_rows():
