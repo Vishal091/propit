@@ -141,6 +141,23 @@ def _game_dates_in_rows(datasets: list[list[list[Any]]]) -> list[date]:
     return sorted(found)
 
 
+def _missing_target_date_message(
+    target: date,
+    visible_dates: list[date],
+    report_time: datetime,
+    report_url: str,
+) -> str:
+    date_list = ", ".join(day.isoformat() for day in visible_dates)
+    published_at = report_time.strftime("%Y-%m-%d %I:%M %p ET")
+    return (
+        f"Downloaded the official NBA injury report published {published_at}, but it contains "
+        f"game-date rows for {date_list} and none for the requested game date {target.isoformat()}. "
+        "The target-date report may not have been published yet. No current snapshot was written; "
+        "retry after the NBA publishes the report for that game date. "
+        f"Selected PDF: {report_url}"
+    )
+
+
 def parse_injury_table_rows(
     tables: list[list[list[Any]]],
     *,
@@ -391,14 +408,8 @@ def fetch_official_injury_report(
         diagnostic_datasets = [*extracted_tables, *positioned_rows]
         visible_dates = _game_dates_in_rows(diagnostic_datasets)
         if visible_dates and target not in visible_dates:
-            date_list = ", ".join(day.isoformat() for day in visible_dates)
-            published_at = report_time.strftime("%Y-%m-%d %I:%M %p ET")
             raise ValueError(
-                f"Downloaded the official NBA injury report published {published_at}, but it contains "
-                f"game-date rows for {date_list} and none for the requested game date {target.isoformat()}. "
-                "The target-date report may not have been published yet. No current snapshot was written; "
-                "retry after the NBA publishes the report for that game date. "
-                f"Selected PDF: {report_url}"
+                _missing_target_date_message(target, visible_dates, report_time, report_url)
             )
 
         # More actionable diagnostics for a true row-layout/parser issue.
