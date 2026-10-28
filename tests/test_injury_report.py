@@ -6,6 +6,7 @@ import pandas as pd
 import pytest
 
 from src.data.injury_report import (
+    _game_dates_in_rows,
     extract_team_submission_metadata,
     parse_injury_table_rows,
     positioned_words_to_rows,
@@ -55,6 +56,44 @@ def test_table_parser_carries_team_and_ignores_not_yet_submitted():
     assert set(parsed["player_name"]) == {"Tatum, Jayson", "Brown, Jaylen"}
     assert set(parsed["team_abbreviation"]) == {"BOS"}
     assert parsed.iloc[0]["matchup"] == "BOS@NYK"
+
+
+def test_report_game_date_diagnostic_distinguishes_yesterday_from_target_date():
+    extracted = [[
+        ["GameDate", "GameTime", "Matchup", "Team", "PlayerName", "CurrentStatus", "Reason"],
+        ["10/28/2026", "07:00(ET)", "CHA@DET", "CharlotteHornets", "Ajayi,Michael", "Out", "GLeague-Two-Way"],
+        ["", "", "", "", "Boswell,Kylan", "Out", "GLeague-Two-Way"],
+        ["", "", "", "", "Knueppel,Kon", "Out", "Injury/Illness-LeftHamstringStrain"],
+    ]]
+    assert _game_dates_in_rows(extracted) == [date(2026, 10, 28)]
+
+    parsed_for_next_day = parse_injury_table_rows(
+        extracted,
+        report_date="2026-10-28",
+        target_date="2026-10-29",
+        report_url="https://example.test/Injury-Report_2026-10-28_02_45PM.pdf",
+        reported_at_utc="2026-10-28T18:45:00Z",
+    )
+    # Never relabel yesterday's player rows as if they belonged to tomorrow.
+    assert parsed_for_next_day.empty
+
+
+def test_parser_normalizes_team_names_when_pdf_extraction_removes_spaces():
+    parsed = parse_injury_table_rows(
+        [[
+            ["GameDate", "GameTime", "Matchup", "Team", "PlayerName", "CurrentStatus", "Reason"],
+            ["10/28/2026", "07:00(ET)", "CHA@DET", "CharlotteHornets", "Ajayi,Michael", "Out", "GLeague-Two-Way"],
+            ["", "", "", "", "Boswell,Kylan", "Out", "GLeague-Two-Way"],
+        ]],
+        report_date="2026-10-28",
+        target_date="2026-10-28",
+        report_url="https://example.test/report.pdf",
+        reported_at_utc="2026-10-28T18:45:00Z",
+    )
+
+    assert len(parsed) == 2
+    assert parsed["team_abbreviation"].tolist() == ["CHA", "CHA"]
+    assert parsed["team_name"].nunique() == 1
 
 
 def test_parser_rejects_non_player_metadata_and_unknown_status_rows():
