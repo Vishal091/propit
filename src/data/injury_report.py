@@ -107,6 +107,40 @@ def _row_value(row: list[Any], index: int) -> str:
     return _clean(row[index]) if index < len(row) else ""
 
 
+def _compact_team_name(value: Any) -> str:
+    """Normalize PDF team text even when extraction removes spaces."""
+    return re.sub(r"[^A-Z]", "", _clean(value).upper())
+
+
+def _canonical_team_name(value: Any) -> str:
+    compact = _compact_team_name(value)
+    for known_name in _TEAM_ABBREVIATIONS:
+        if _compact_team_name(known_name) == compact:
+            return known_name
+    return _clean(value)
+
+
+def _team_abbreviation(value: Any) -> str:
+    compact = _compact_team_name(value)
+    for known_name, abbreviation in _TEAM_ABBREVIATIONS.items():
+        if _compact_team_name(known_name) == compact:
+            return abbreviation
+    return ""
+
+
+def _game_dates_in_rows(datasets: list[list[list[Any]]]) -> list[date]:
+    """Return distinct game dates visible in extracted table/coordinate rows."""
+    found: set[date] = set()
+    for table in datasets:
+        for row in table:
+            if not row:
+                continue
+            parsed = _parse_date_cell(_row_value(row, 0))
+            if parsed is not None:
+                found.add(parsed)
+    return sorted(found)
+
+
 def parse_injury_table_rows(
     tables: list[list[list[Any]]],
     *,
@@ -142,8 +176,8 @@ def parse_injury_table_rows(
                 current_time = time_cell
             if game_cell and "@" in game_cell:
                 current_game = game_cell.upper().replace(" ", "")
-            if team_cell and team_cell.upper() in _TEAM_ABBREVIATIONS:
-                current_team = team_cell
+            if team_cell and _team_abbreviation(team_cell):
+                current_team = _canonical_team_name(team_cell)
             elif team_cell and len(team_cell) > 3 and not team_cell.upper().startswith("NOT YET"):
                 current_team = team_cell
 
@@ -160,7 +194,7 @@ def parse_injury_table_rows(
                 continue
             if status.casefold() not in {"available", "probable", "questionable", "doubtful", "out"}:
                 continue
-            abbreviation = _TEAM_ABBREVIATIONS.get(current_team.upper(), "")
+            abbreviation = _team_abbreviation(current_team)
             collected.append({
                 "scheduled_date": target_day.isoformat(),
                 "game_time": current_time,
@@ -350,21 +384,42 @@ def fetch_official_injury_report(
         )
         parse_method = "positioned_words"
     if frame.empty:
-        # More actionable diagnostics, without writing any partial/unverified data.
+        # Distinguish a not-yet-published game-date report from a real parser
+        # regression. At publication time the latest PDF can still contain only
+        # yesterday's games; that is not a reason to infer statuses or to write
+        # an empty/incorrect snapshot.
+        diagnostic_datasets = [*extracted_tables, *positioned_rows]
+        visible_dates = _game_dates_in_rows(diagnostic_datasets)
+        if visible_dates and target not in visible_dates:
+            date_list = ", ".join(day.isoformat() for day in visible_dates)
+            published_at = report_time.strftime("%Y-%m-%d %I:%M %p ET")
+            raise ValueError(
+                f"Downloaded the official NBA injury report published {published_at}, but it contains "
+                f"game-date rows for {date_list} and none for the requested game date {target.isoformat()}. "
+                "The target-date report may not have been published yet. No current snapshot was written; "
+                "retry after the NBA publishes the report for that game date. "
+                f"Selected PDF: {report_url}"
+            )
+
+        # More actionable diagnostics for a true row-layout/parser issue.
         all_words = []
-        with pdfplumber.open(io.BytesIO(pdf_response.content)) as pdf:
-            for page in pdf.pages[:2]:
+        page_count = "unknown"
+        with pdfplumber.open(io.BytesIO(pdf_response.content)) as diagnostic_pdf:
+            page_count = len(diagnostic_pdf.pages)
+            for page in diagnostic_pdf.pages[:2]:
                 try:
                     all_words.extend(page.extract_words())
                 except Exception:
                     pass
         preview = " ".join(_clean(word.get("text")) for word in all_words[:70])
+        visible_text_dates = ", ".join(day.isoformat() for day in visible_dates) or "none detected"
         raise ValueError(
             "Downloaded official report but could not parse any player status rows for "
             f"{target.isoformat()}. No current snapshot was written. "
-            f"Pages={len(pdf.pages) if 'pdf' in locals() else 'unknown'}; "
-            f"table_count={len(extracted_tables)}; positioned_pages={len(positioned_rows)}; "
-            f"text_preview={preview[:500]!r}. This diagnostic will help fix any layout change."
+            f"Pages={page_count}; table_count={len(extracted_tables)}; "
+            f"positioned_pages={len(positioned_rows)}; game_dates_detected={visible_text_dates}; "
+            f"text_preview={preview[:500]!r}. The requested date appears in the source rows if listed; "
+            "if it does, this indicates an injury-report layout/parser change."
         )
     team_submission_meta = extract_team_submission_metadata(
         extracted_tables, positioned_rows, target_date=target,
