@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
+import requests
 
 from src.availability import DEFAULT_AVAILABILITY_PATH, normalize_status
 from src.data.injury_report import fetch_official_injury_report
@@ -162,12 +163,15 @@ def main() -> None:
         date.fromisoformat(args.game_date)
     except ValueError:
         parser.error("--game-date must be a real YYYY-MM-DD date")
-    result = import_report(
-        args.game_date,
-        output_path=args.output,
-        history_path=args.history_output,
-        imports_path=args.imports_output,
-    )
+    try:
+        result = import_report(
+            args.game_date,
+            output_path=args.output,
+            history_path=args.history_output,
+            imports_path=args.imports_output,
+        )
+    except (ValueError, RuntimeError, requests.RequestException) as exc:
+        parser.exit(2, f"ERROR: {exc}\\n")
     pending_teams = []
     try:
         pending_teams = json.loads(result.get("teams_not_yet_submitted_json") or "[]")
